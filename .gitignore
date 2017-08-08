@@ -1,0 +1,8 @@
+corpora/deepspell*
+corpora/RoadFTS5_USA.nds
+corpora/RoadFTS5_EU.NDS
+!corpora/deepspell_minimal.tsv
+.idea
+__pycache__
+logs
+models/checkpoint

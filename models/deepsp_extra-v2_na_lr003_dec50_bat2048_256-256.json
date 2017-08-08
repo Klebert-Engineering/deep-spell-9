@@ -1,0 +1,28 @@
+{
+  "batch_size": 2048,
+  "features": {
+    "charset": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-., /_$",
+    "classes": {
+      "CITY": 0,
+      "COUNTRY": 2,
+      "EOL": 5,
+      "ROAD": 3,
+      "STATE": 1,
+      "ZIP": 4
+    },
+    "eol_char": "$",
+    "eol_class_name": "EOL",
+    "unk_char": "_"
+  },
+  "iteration": 23410,
+  "learning_rate": 0.003,
+  "learning_rate_decay": 0.5,
+  "state_size_per_layer": [
+    256,
+    256
+  ],
+  "training_epochs": 5,
+  "training_history": [
+    "na"
+  ]
+}

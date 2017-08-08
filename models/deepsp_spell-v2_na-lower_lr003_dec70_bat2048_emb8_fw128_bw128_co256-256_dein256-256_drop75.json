@@ -1,0 +1,44 @@
+{
+  "batch_size": 2048,
+  "current_kl_rate": 0.0,
+  "decoder_input_keep_prob": 0.25,
+  "decoder_state_size_per_layer": [
+    256,
+    256
+  ],
+  "embedding_size": 8,
+  "encoder_bw_state_size_per_layer": [
+    128
+  ],
+  "encoder_combine_state_size_per_layer": [
+    256,
+    256
+  ],
+  "encoder_fw_state_size_per_layer": [
+    128
+  ],
+  "features": {
+    "bol_char": "^",
+    "charset": "abcdefghijklmnopqrstuvwxyz0123456789-., /_$^",
+    "classes": {
+      "CITY": 0,
+      "COUNTRY": 2,
+      "EOL": 4,
+      "ROAD": 3,
+      "STATE": 1
+    },
+    "eol_char": "$",
+    "eol_class_name": "EOL",
+    "unk_char": "_"
+  },
+  "iteration": 23180,
+  "kl_rate_rise_iterations": 1,
+  "kl_rate_rise_threshold": 1000000,
+  "latent_space_as_decoder_state": false,
+  "learning_rate": 0.003,
+  "learning_rate_decay": 0.7,
+  "training_epochs": 10,
+  "training_history": [
+    "na-lower"
+  ]
+}

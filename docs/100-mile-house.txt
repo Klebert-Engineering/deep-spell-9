@@ -1,0 +1,81 @@
+Josephs-MacBook-Pro:deep-spell joseph$ cat corpora/deepspell_data_north_america_v2.tsv | grep "Mile House"
+CITY    1    100 Mile House    *    STATE    32    
+ROAD    4002645    4 Mile House Rd    *    CITY    13881    
+ROAD    4004626    4 Mile House Rd    *    CITY    21773    
+ROAD    4004971    4 Mile House Rd    *    CITY    27964    
+ROAD    4005141    S 4 Mile House Portage Rd    *    CITY    27964    
+ROAD    4005142    S 4 Mile House Rd    *    CITY    27964    
+ROAD    4382252    Two Mile House Rd    *    CITY    8272    
+ROAD    4382381    W Two Mile House Rd    *    CITY    8272    
+ROAD    8525533    Ten Mile House Trl    *    CITY    7196    
+ROAD    8526941    14 Mile House Dr    *    CITY    13342    
+ROAD    8527026    Fourteen Mile House Rd    *    CITY    13342    
+ROAD    8943509    Twelve Mile House Ln    *    CITY    16073    
+
+Josephs-MacBook-Pro:deep-spell joseph$ cat corpora/deepspell_data_north_america_v2.tsv | grep -E "CITY\t1\b"
+CITY    1    100 Mile House    *    STATE    32    
+ROAD    9395618    1100 Rod Forest Service Rd N    *    CITY    1    
+ROAD    9395623    1300 Forest Service Rd    *    CITY    1    
+ROAD    9395646    1st St    *    CITY    1    
+ROAD    9395677    2nd St    *    CITY    1    
+ROAD    9395703    3rd St    *    CITY    1    
+ROAD    9395715    4th St    *    CITY    1    
+ROAD    9395726    5th St    *    CITY    1    
+ROAD    9395747    7th St    *    CITY    1    
+ROAD    9395755    8th St    *    CITY    1    
+ROAD    9395767    9th St    *    CITY    1    
+ROAD    9395791    Ainsworth Rd    *    CITY    1    
+ROAD    9395793    Airport Rd    *    CITY    1    
+ROAD    9395797    Alder Ave    *    CITY    1    
+ROAD    9395808    Alpine Ave    *    CITY    1    
+ROAD    9395809    Alpine Rd    *    CITY    1    
+ROAD    9395821    Answorth Ave    *    CITY    1    
+ROAD    9395846    Aspen St    *    CITY    1    
+ROAD    9395864    Balsam Pl    *    CITY    1    
+ROAD    9395865    Balsam St    *    CITY    1    
+ROAD    9395928    Birch Ave    *    CITY    1    
+ROAD    9395929    Birch Ave N    *    CITY    1    
+ROAD    9395930    Birch Ave S    *    CITY    1    
+ROAD    9395933    Birch Pl    *    CITY    1    
+ROAD    9395946    Blackstock Rd    *    CITY    1    
+ROAD    9395997    Bridge Creek Pl    *    CITY    1    
+ROAD    9396029    Burchley Cres    *    CITY    1    
+ROAD    9396031    Burghley Cres    *    CITY    1    
+ROAD    9396059    Canim-Hendrix Lake Rd    *    CITY    1    
+ROAD    9396071    Cariboo Hwy    *    CITY    1    
+ROAD    9396077    Cariboo Trail Rd    *    CITY    1    
+ROAD    9396078    Cariboo Trl    *    CITY    1    
+ROAD    9396089    Cedar Ave S    *    CITY    1    
+ROAD    9396260    Dogwood Cres    *    CITY    1    
+ROAD    9396329    Elm Ave    *    CITY    1    
+ROAD    9396354    Evergreen Cres    *    CITY    1    
+ROAD    9396359    Exeter McKinnley Rd    *    CITY    1    
+ROAD    9396360    Exeter Rd    *    CITY    1    
+ROAD    9396361    Exeter Station Rd    *    CITY    1    
+ROAD    9396362    Exeter Truck Rd    *    CITY    1    
+ROAD    9396363    Exeter Truck Rte    *    CITY    1    
+ROAD    9396388    Fir St    *    CITY    1    
+ROAD    9396417    Fraser Way    *    CITY    1    
+ROAD    9396428    Galpin Pl    *    CITY    1    
+ROAD    9396515    Gustafson Lake Forest Service Rd    *    CITY    1    
+ROAD    9396541    HWY-97    *    CITY    1    
+ROAD    9396589    Heather Rd    *    CITY    1    
+ROAD    9396601    Heron Ridge Rd    *    CITY    1    
+ROAD    9396658    Horse Lake Rd    *    CITY    1    
+ROAD    9396679    Hyra Rd    *    CITY    1    
+ROAD    9396685    Industrial Access Rd    *    CITY    1    
+ROAD    9396690    Industrial Rd    *    CITY    1    
+ROAD    9396713    Jens Rd    *    CITY    1    
+ROAD    9396714    Jens St    *    CITY    1    
+ROAD    9396802    Kostiuk Rd    *    CITY    1    
+ROAD    9396950    Marks Dr    *    CITY    1    
+ROAD    9396953    Marmot Rd    *    CITY    1    
+ROAD    9396972    McDermid Rd    *    CITY    1    
+ROAD    9396998    McNeil Pl    *    CITY    1    
+ROAD    9397216    Pine Pl    *    CITY    1    
+ROAD    9397404    Scott Rd    *    CITY    1    
+ROAD    9397414    Service Rd    *    CITY    1    
+ROAD    9397470    Sollows Cres    *    CITY    1    
+ROAD    9397490    Spruce Ave    *    CITY    1    
+ROAD    9397575    Taylor Ave    *    CITY    1    
+ZIP    94997    V0K    *    CITY    1

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deep Spell: Neural Auto-Completion in NDS</title>
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <style>
+    table {
+        text-align: center;
+    }
+    .table-wrapper {
+        text-align: center;
+    }
+    @media only screen and (min-width: 700px) {
+        .layout-col-third {
+            float: left;
+            width: calc(33.333% - 16px);
+            margin: 16px;
+            margin-left: 0;
+        }
+        .layout-col-twothird {
+            float: left;
+            width: calc(66.666% - 32px);
+            margin: 16px;
+        }
+    }
+    @media only screen and (max-width: 700px) {
+        .layout-col-third {
+            float: left;
+            width: calc(100% - 32px);
+            margin: 16px;
+            margin-top: 0;
+        }
+        .layout-col-twothird {
+            float: left;
+            width: calc(100% - 32px);
+            margin: 16px;
+        }
+    }
+    </style>
+</head>
+<body style="background-color: lightgray">
+    <div class='w3-container' style='padding: 0'>
+        <div class="w3-padding w3-white w3-row w3-card-4 w3-center">
+            <h3 style="line-height: 1.2;">Deep Spell: Neural FTS Suggestions for NDS</h3>
+            <span style="font-size: xx-small">{{encoder_model_name}}</span>
+        </div>
+        <div class="w3-row w3-container" style="padding: 0">
+            <div class="layout-col-twothird">
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white">
+                    <h6>Enter your query</h6>
+                    <input autocomplete="off" style="padding: 0; padding-bottom: 8px" class="w3-input" id="query-input">
+                    <span id="prediction" class="w3-text-gray w3-small">No Input</span>
+                    <span class="w3-small" style="float: right">Press tab to complete.</span>
+                </div>
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white" style="overflow: auto">
+                    <h6>Predicted Categories</h6>
+                    <div id="categories" class="table-wrapper"></div>
+                </div>
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto; display: none" id="lookup-panel">
+                    <h6>FTS5 Lookup</h6>
+                    <div id="lookup" class="table-wrapper"></div>
+                </div>
+            </div>
+            <div class="layout-col-third">
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white" style="overflow: auto">
+                    <h6>Completion</h6>
+                    <div id="completion" class="table-wrapper"></div>
+                </div>
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto; display: none" id="correction-panel">
+                    <h6>Correction</h6>
+                    <div id="correction" class="table-wrapper"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var host = "{{hostname}}";
+        var withCorrection = "{{with_correction}}";
+        var withFtsLookup = "{{with_ftslookup}}";
+        var bestSuggestion = "";
+
+        if(withCorrection)
+            $("#correction-panel").show();
+
+        if(withFtsLookup)
+            $("#lookup-panel").show();
+
+        function extrapolator_heatmap_table(completions, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            if(!completions.length)
+                return "";
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
+            completions.forEach(function(completion){
+                result += "<tr>";
+                var completion_chars = completion[0]
+                var completion_classes = completion[1]
+                var logprob = completion[2]
+                for(var col = 0; col < completion_chars.length; ++col) {
+                    var font_color = "black";
+
+                    // Find maximum value in the column
+                    // var col_max = .0;
+                    // col_first_data[col].forEach(function(value_prob_pair){
+                    //    if(value_prob_pair[1] > col_max) col_max=value_prob_pair[1]});
+
+                    if(color_map)
+                        font_color = color_map[completion_classes[col]];
+                    result += "<td style='" +
+                        "font-size:"+font_size+";" +
+                        "opacity:"+1.+";" + // (col_first_data[col][row][1]/col_max*.9+.1)
+                        "color: "+font_color+"'>"+
+                        completion_chars[col]+"</td>"
+                }
+                result += "</tr>\n";
+            });
+            result += "</table>\n";
+            return result
+        }
+
+        function discriminator_heatmap_table(col_first_data, color_map, font_size, header_labels, max_rows) {
+            if(!font_size)
+                font_size = "normal";
+            if(!col_first_data.length)
+                return "";
+            if(!max_rows)
+                max_rows = 12;
+            // First, allocate table rows
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
+            if(header_labels) {
+                result += "<thr>";
+                header_labels.forEach(function(label){
+                    result += "<td>"+label+"</td>"
+                });
+                result += "</thr>";
+            }
+            for(var row = 0; row < col_first_data[0].length && row < max_rows; ++row) {
+                result += "<tr>";
+                for(var col = 0; col < col_first_data.length; ++col) {
+                    var font_color = "black";
+
+                    // Find maximum value in the column
+                    var col_max = .0;
+                    col_first_data[col].forEach(function(value_prob_pair){
+                        if(value_prob_pair[1] > col_max) col_max=value_prob_pair[1]});
+
+                    if(color_map)
+                        font_color = color_map[col_first_data[col][row][0]];
+                    result += "<td style='" +
+                        "font-size:"+font_size+";" +
+                        "opacity:"+(col_first_data[col][row][1]/col_max*.9+.1)+";" +
+                        "color: "+font_color+"'>"+
+                        col_first_data[col][row][0].slice(0,2)+"</td>"
+                }
+                result += "</tr>\n";
+            }
+            result += "</table>\n";
+            return result
+        }
+
+        function corrector_table(corrections_per_class, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
+            Object.keys(corrections_per_class).forEach(function(classname) {
+                var font_color = "black";
+                if(color_map)
+                    font_color = color_map[classname];
+                var correctionStyle = " style='font-size:"+font_size+";" +
+                                      "color: "+font_color+";" +
+                                      "text-align: left'";
+                var origTokenStyle =  " style='font-size:"+font_size+";" +
+                                      "color: "+font_color+";" +
+                                      "text-align: right    '";
+                var tokens_for_class = corrections_per_class[classname]
+                if(tokens_for_class.length > 1) {
+                    result += "<tr><td"+origTokenStyle+">"+tokens_for_class[0]+"</td><td>&#8605;</td><td"+correctionStyle+">"+tokens_for_class[1][0]+"</td></tr>";
+                    for(var i = 2; i < tokens_for_class.length; ++i)
+                        result += "<tr><td></td><td></td><td"+correctionStyle+">"+tokens_for_class[i][0]+"</td></tr>";
+                }
+            });
+            result += "</table>\n";
+            return result;
+        }
+
+        function lookup_table(matches, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            var result = "<table class='w3-table w3-bordered' style='font-family: monospace; width: auto; display: inline-block;'>\n";
+            var headerRowWritten = false
+            matches.forEach(function(match){
+                if(!headerRowWritten) {
+                    headerRowWritten = true;
+                    result += "<hr>"
+                    Object.keys(match).forEach(function(key) {
+                        var font_color = "black";
+                        if(color_map)
+                            font_color = color_map[key];
+                        var style = " style='font-size:"+font_size+";" +
+                                    "color: "+font_color+";" +
+                                    "text-align: left'";
+                        result += "<td"+style+">"+key.toUpperCase()+"</td>";
+                    });
+                    result += "</hr>"
+                }
+                result += "<tr>";
+                Object.keys(match).forEach(function(key) {
+                    var font_color = "black";
+                    if(color_map)
+                        font_color = color_map[key];
+                    var style = " style='font-size:"+font_size+";" +
+                                "color: "+font_color+";" +
+                                "text-align: left'";
+                    result += "<td"+style+">"+match[key]+"</td>";
+                });
+                result += "</tr>";
+            });
+            result += "</table>\n";
+            return result;
+        }
+
+        $('#query-input').keydown(function(e) {
+            if(e.which === 9) {
+                $('#query-input')[0].value += bestSuggestion;
+                $('#query-input').trigger('input');
+                if (e.preventDefault)
+                    e.preventDefault();
+                return false;
+            }
+        });
+
+        var ftsLookupInProgress = false;
+        var ftsLookupNeeded = false;
+        var currentBestUserTokensPerClass = {};
+
+        $('#query-input').on('input', function() {
+            var user_input = $(this).val();
+            var category_colors = {
+                "CITY": "red",
+                "STATE": "blue",
+                "ROAD": "green",
+                "ZIP": "yellow",
+                "COUNTRY": "purple"
+            };
+            if(user_input) {
+                var _this = $(this)
+                $.get("/extrapolate?s=" + encodeURIComponent(user_input), function (result) {
+                    bestSuggestion = "";
+                    for (var i = 0; i < result["extrapolator"][0][0].length; ++i) {
+                        var char = result["extrapolator"][0][0][i];
+                        if ((char === " " && i > 0) || char === "$")
+                            break;
+                        bestSuggestion += char
+                    }
+                    $("#prediction").html(user_input + "<b>" + bestSuggestion + "</b>")
+                    $("#prediction").removeClass("w3-text-gray")
+                    $("#categories").html(discriminator_heatmap_table(result["discriminator"], category_colors, "normal", user_input.split("")));
+                    $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
+
+                    currentBestUserTokensPerClass = {};
+                    Object.keys(result["corrector"]).forEach(function(classname){
+                        var tokensForClass = result["corrector"][classname]
+                        currentBestUserTokensPerClass[classname] = tokensForClass.length > 1 ? tokensForClass[1][0] : tokensForClass[0]
+                    });
+
+                    if(withCorrection)
+                        $("#correction").html(corrector_table(result["corrector"], category_colors));
+
+                    if(withFtsLookup) {
+                        if(ftsLookupInProgress) {
+                            ftsLookupNeeded = true
+                            return
+                        }
+                        (function ftsLookup() {
+                            ftsLookupNeeded = false
+                            ftsLookupInProgress = true
+                            var request = "/lookup?n=5";
+                            Object.keys(currentBestUserTokensPerClass).forEach(function(classname){
+                                request += "&"+classname+"="+currentBestUserTokensPerClass[classname]
+                            })
+                            $.get(request, function(result){
+                                $("#lookup").html(lookup_table(result, category_colors));
+                                ftsLookupInProgress = false
+                                if(ftsLookupNeeded)
+                                    ftsLookup()
+                            })
+                        })()
+                    }
+                })
+            }
+            else {
+                $("#prediction").html("No Input");
+                $("#prediction").addClass("w3-text-gray");
+                $("#categories").empty();
+                $("#completion").empty();
+                $("#correction").empty();
+                $("#lookup").empty();
+                ftsLookupNeeded = false;
+                currentBestUserTokensPerClass = {};
+            }
+        });
+    </script>
+</body>
+</html>
