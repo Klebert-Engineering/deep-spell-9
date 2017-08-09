@@ -2,7 +2,10 @@
 
 import codecs
 from collections import defaultdict
+from unidecode import unidecode
 import random
+import numpy as np
+import re
 
 from . import grammar
 
@@ -78,6 +81,8 @@ class FtsCorpus:
     which may serve as components of FTS queries.
     """
 
+    UNSUPPORTED_CHARACTERS_RE = re.compile(r"[^0-9a-zA-Z ]")
+
     """
     @class_ids is a dictionary like:
     { <class_name_string>: <class_id> }
@@ -110,13 +115,41 @@ class FtsCorpus:
                         (parent_class_id, parent_token_id),
                         token_str)
 
-        for _, token in token_for_id:
+        for (class_id, _), token in token_for_id:
+            self.data[class_id].append(token)
             if token.parent in token_for_id:
                 token.parent = token_for_id[token.parent]
                 token.parent.children.append(token)
             else:
                 token.parent = None
 
-    def next_batch(self, batch_size, sample_grammar, iterator=None):
-        assert(isinstance(sample_grammar, grammar.FtsGrammar))
-        pass
+    def get_batch_and_lengths(self, batch_size, sample_grammar, epoch_leftover_indices=None, train_test_split=None):
+        assert (isinstance(sample_grammar, grammar.FtsGrammar))
+        # Make sure that training document order is randomized
+        if not epoch_leftover_indices:
+            epoch_leftover_indices = [
+                (class_id, i)
+                for class_id, class_tokens in self.data
+                for i in range(len(class_tokens))]
+            random.shuffle(epoch_leftover_indices)
+        # First, collect all the texts that will be put into the batch
+        batch_token_indices = epoch_leftover_indices[:batch_size]
+        epoch_leftover_indices = epoch_leftover_indices[batch_size:]
+        # Compile the lengths of the token sequences of the selected examples
+        batch_phrases = [
+            sample_grammar.random_phrase_and_classes_with_token(self.data[token_id[0]][token_id[1]])
+            for token_id in batch_token_indices]
+        batch_lengths = np.asarray([len(self.document_tokens[i]) + 1 for i in batch_token_indices])
+        # Iterate over all timesteps and compile time-first embeddings
+        batch_embeddings = []
+        for t in range(max(batch_lengths)):
+            batch_embeddings.append([])
+            for course_index in batch_token_indices:
+                course_tokens = self.document_tokens[course_index]
+                emb = embedding_model.NO_TOKEN
+                if t < len(course_tokens):
+                    emb = embedding_model.embed(course_tokens[t])
+                elif t == len(course_tokens):
+                    emb = embedding_model.EOD_TOKEN
+                batch_embeddings[-1].append(emb)
+        return np.asarray(batch_embeddings, np.float32), batch_lengths, epoch_leftover_indices

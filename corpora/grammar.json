@@ -1,0 +1,21 @@
+{
+    "name": "us",
+    "rule": [
+        {
+            "class": "COUNTRY",
+            "prior": 0.1
+        },
+        {
+            "class": "CITY",
+            "prior": 0.7
+        },
+        {
+            "class": "STATE",
+            "prior": 0.3
+        },
+        {
+            "class": "STREET",
+            "prior": 0.5
+        }
+    ]
+}
