@@ -1,21 +1,29 @@
 {
-    "name": "us",
-    "rule": [
+    "root-nonterminal": "us-address",
+    "rules":
+    [
         {
-            "class": "COUNTRY",
-            "prior": 0.1
-        },
-        {
-            "class": "CITY",
-            "prior": 0.7
-        },
-        {
-            "class": "STATE",
-            "prior": 0.3
-        },
-        {
-            "class": "STREET",
-            "prior": 0.5
+            "class": "us-address",
+            "type": "random-sequence",
+            "symbols":
+            [
+                {
+                    "class": "COUNTRY",
+                    "prior": 0.1
+                },
+                {
+                    "class": "CITY",
+                    "prior": 0.7
+                },
+                {
+                    "class": "STATE",
+                    "prior": 0.3
+                },
+                {
+                    "class": "ROAD",
+                    "prior": 0.5
+                }
+            ]
         }
     ]
 }
