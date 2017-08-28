@@ -4,7 +4,7 @@ import os
 # ====================[ Abstract Predictor Interface ]===================
 
 
-class FtsPredictor:
+class DSPredictor:
 
     # ------------------------[ Properties ]------------------------
 
@@ -12,7 +12,7 @@ class FtsPredictor:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, embedding_model, file_or_folder="", kwargs_to_update=None):
+    def __init__(self, file_or_folder="", kwargs_to_update=None):
         """
         Instantiate or restore a Representation Model.
         :param file_or_folder: [optional] A file from which the model
@@ -23,10 +23,14 @@ class FtsPredictor:
         """
         assert isinstance(file_or_folder, str)
         self.file = file_or_folder
-        if os.path.isfile(file_or_folder):
+        if os.path.isfile(file_or_folder) and isinstance(kwargs_to_update, dict):
             print("Loading model '{}'...".format(file_or_folder))
             assert os.path.splitext(file_or_folder)[1] == ".json"
-            kwargs_to_update.update(json.load(open(file_or_folder, "r")))
+            with open(file_or_folder, "r") as json_file:
+                json_data = json.load(json_file)
+                for key, value in json_data.items():
+                    if key not in kwargs_to_update:
+                        kwargs_to_update[key] = value
         elif file_or_folder:
             assert os.path.isdir(file_or_folder)
 
@@ -37,11 +41,12 @@ class FtsPredictor:
         """
         pass
 
-    def train(self, corpus, train_test_split=None):
+    def train(self, corpus, sample_grammar, train_test_split=None):
         """
         Train this model with documents from a given corpus.
         :param corpus: The corpus with documents to train from.
-         Should be an instance of iromir.corpus.Corpus.
+         Should be an instance of deepspell.corpus.Corpus.
+        :param sample_grammar: The grammar that will be used to generate training examples.
         :param train_test_split: [optional] A 2-tuple that indicates the ratio
          for the train-test split of the corpus.
         """
