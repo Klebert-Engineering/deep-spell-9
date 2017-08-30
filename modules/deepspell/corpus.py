@@ -37,6 +37,7 @@ class DSCorpus:
     { <class_name_string>: <class_id> }
     """
     class_ids = None
+    eol_class_id = 0
 
     """
     @data is a dictionary like:
@@ -88,6 +89,8 @@ class DSCorpus:
         for class_name, class_id in self.class_ids.items():
             print("  * {} tokens for class '{}'".format(len(self.data[class_id]), class_name))
 
+        self.eol_class_id = self.class_ids["EOL"]
+
     def total_num_features_per_character(self):
         return self.total_num_lexical_features_per_character() + self.total_num_logical_features_per_character()
 
@@ -96,7 +99,7 @@ class DSCorpus:
         return len(CHAR_SUBSET)
 
     def total_num_logical_features_per_character(self):
-        return len(self.class_ids) + 1  # + 1 for EOL class
+        return len(self.class_ids)
 
     def get_batch_and_lengths(self, batch_size, sample_grammar, epoch_leftover_indices=None, train_test_split=None):
         """
@@ -136,6 +139,38 @@ class DSCorpus:
             for batch_embedding_sequence in batch_embedding_sequences])
         return batch_embedding_sequences, batch_lengths, epoch_leftover_indices
 
+    def class_name_for_id(self, id):
+        """
+        Returns the name of the token class for the given integer class id, or None,
+        if no class with that id was found. Asserts that id is a unique value in self.class_ids.
+        :param id: The integer id of class name to be retrieved.
+        :return: The class name, or None, if no class with the given id exists.
+        """
+        result = [name for name, name_id in self.class_ids.items() if name_id == id]
+        assert len(result) <= 1
+        return result[0] if result else None
+
+    def embed_prefix(self, prefix_chars, prefix_classes):
+        """
+        Embeds a single prefix char-class combo into a 2D-matrix with shape
+        (len(prefix_chars), self.total_num_features_per_character()).
+        :param prefix_chars: Arbitrary string.
+        :param prefix_classes: List of terminal token class names. Must be of length len(prefix_chars).
+        :return: The embedded feature matrix.
+        """
+        assert len(prefix_chars) == len(prefix_classes)
+        result = []
+        for i, char in enumerate(prefix_chars):
+            class_id = self.class_ids[prefix_classes[i]]
+            char_id = CHAR_SUBSET_INDEX[char]
+            char_embedding = np.zeros(self.total_num_features_per_character())
+            # Set character label
+            char_embedding[char_id] = 1.
+            # Set class label
+            char_embedding[self.total_num_lexical_features_per_character() + class_id] = 1.
+            result.append(char_embedding)
+        return np.asarray(result, np.float32)
+
     # ----------------------[ Private Methods ]----------------------
 
     def _embed(self, token_list, length_to_align):
@@ -156,7 +191,7 @@ class DSCorpus:
                 result.append(char_embedding)
         # Append EOL char
         char_embedding = np.zeros(self.total_num_features_per_character())
-        char_embedding[len(char_embedding)-1] = 1.
+        char_embedding[self.total_num_lexical_features_per_character() + self.eol_class_id] = 1.
         result.append(char_embedding)
         # Align output length
         assert len(result) <= length_to_align

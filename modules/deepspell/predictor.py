@@ -1,8 +1,13 @@
+# (C) 2017 Klebert Engineering GmbH
+
+# ===============================[ Imports ]=============================
+
 import tensorflow as tf
 import sys
 import os
 import json
 import time
+import numpy as np
 
 # ============================[ Local Imports ]==========================
 
@@ -43,7 +48,7 @@ class DSLstmPredictor(abstract.DSPredictor):
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, total_features_per_character, file_or_folder, log_dir="", **kwargs):
+    def __init__(self, file_or_folder, log_dir="", **kwargs):
         """Documentation in base Model class
         :param total_features_per_character: The exact number of features per character,
          which is required for the Graph construction.
@@ -59,6 +64,8 @@ class DSLstmPredictor(abstract.DSPredictor):
         self.state_size_per_layer = kwargs.pop("state_size_per_layer", (256, 256))
         self.training_history = kwargs.pop("training_history", [])
         self.iteration = kwargs.pop("iteration", 0)
+        self.num_lexical_features = kwargs.pop("num_lexical_features", 0)
+        self.num_logical_features = kwargs.pop("num_logical_features", 0)
 
         # -- Create Tensor Flow compute graph nodes
         self.tf_learning_rate = tf.placeholder(tf.float32)
@@ -69,7 +76,10 @@ class DSLstmPredictor(abstract.DSPredictor):
          self.tf_input_shape,
          self.tf_predictor_cell,
          self.tf_char_predictions_per_timestep_per_batch,
-         self.tf_final_state) = self._predictor(total_features_per_character)
+         self.tf_final_state) = self._predictor(self.num_logical_features+self.num_lexical_features)
+
+        (self.tf_maximum_prediction_length,
+         self.tf_stepwise_predictor_output) = self._stepwise_predictor()
 
         (self.tf_train_op,
          self.tf_logical_loss_summary,
@@ -104,7 +114,9 @@ class DSLstmPredictor(abstract.DSPredictor):
             "batch_size": self.batch_size,
             "state_size_per_layer": self.state_size_per_layer,
             "training_history": self.training_history,
-            "iteration": self.iteration
+            "iteration": self.iteration,
+            "num_lexical_features": self.num_lexical_features,
+            "num_logical_features": self.num_logical_features
         }
         if not file:
             folder = os.path.dirname(self.file)
@@ -126,6 +138,8 @@ class DSLstmPredictor(abstract.DSPredictor):
         """Documentation in base Model class"""
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
+        assert self.num_lexical_features == training_corpus.total_num_lexical_features_per_character()
+        assert self.num_logical_features == training_corpus.total_num_logical_features_per_character()
         self.training_history += [training_corpus.name]
         self.store()
 
@@ -176,8 +190,8 @@ class DSLstmPredictor(abstract.DSPredictor):
                         self.tf_char_embeddings_per_timestep_per_batch: batch,
                         self.tf_timesteps_per_batch: lengths,
                         self.tf_learning_rate: current_learning_rate,
-                        self.tf_num_lexical_classes: training_corpus.total_num_lexical_features_per_character(),
-                        self.tf_num_logical_classes: training_corpus.total_num_logical_features_per_character()
+                        self.tf_num_lexical_classes: self.num_lexical_features,
+                        self.tf_num_logical_classes: self.num_logical_features
                     })
 
                 if self.tf_summary_writer:
@@ -197,7 +211,6 @@ class DSLstmPredictor(abstract.DSPredictor):
                     sys.stdout.flush()
 
                 if not epoch_leftover_documents:
-                    # -- Epoch complete: Checkpoint, extract phrases if required.
                     self.tf_saver.save(sess, self.tf_checkpoint_path)
                     epoch_count += 1
                     current_learning_rate *= self.learning_rate_decay
@@ -209,8 +222,46 @@ class DSLstmPredictor(abstract.DSPredictor):
 
         print("Optimization Finished!")
 
-    def complete(self, prefix_chars, prefix_classes, num_chars_to_predict=-1):
-        pass
+    def complete(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+        """Documentation in base Model class"""
+        assert isinstance(completion_corpus, corpus.DSCorpus)
+        assert len(prefix_chars) == len(prefix_classes)
+        assert self.num_lexical_features == completion_corpus.total_num_lexical_features_per_character()
+        assert self.num_logical_features == completion_corpus.total_num_logical_features_per_character()
+
+        embedded_prefix = np.reshape(
+            completion_corpus.embed_prefix(prefix_chars, prefix_classes),
+            newshape=(1, len(prefix_chars), self.num_logical_features + self.num_lexical_features))
+
+        stepwise_predictor_output = self.session.run(self.tf_stepwise_predictor_output, feed_dict={
+            self.tf_char_embeddings_per_timestep_per_batch: embedded_prefix,
+            self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
+            self.tf_num_lexical_classes: self.num_lexical_features,
+            self.tf_num_logical_classes: self.num_logical_features,
+            self.tf_maximum_prediction_length: num_chars_to_predict
+        })
+        assert len(stepwise_predictor_output) == num_chars_to_predict
+
+        completion_chars = []
+        completion_classes = []
+
+        for prediction in stepwise_predictor_output:
+            char_pd = sorted((  # sort char predictions by probability in descending order
+                    (corpus.CHAR_SUBSET[i], p)
+                    for i, p in enumerate(prediction[:self.num_lexical_features])
+                ),
+                key=lambda entry: entry[1],
+                reverse=True)
+            class_pd = sorted((  # sort class predictions by probability in descending order
+                    (completion_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    for i, p in enumerate(prediction[-self.num_logical_features:])
+                ),
+                key=lambda entry: entry[1],
+                reverse=True)
+            completion_chars.append(char_pd)
+            completion_classes.append(class_pd)
+
+        return completion_chars, completion_classes
 
     # -----------------------[ Public Methods ]----------------------
 
@@ -277,31 +328,38 @@ class DSLstmPredictor(abstract.DSPredictor):
     def _stepwise_predictor(self):
         with tf.name_scope("stepwise_predictor"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
-            initial_outputs = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
-            initial_t = tf.constant(0, dtype=tf.int32)
-            initial_state = self.tf_final_state
-            initial_prev_output = self.tf_char_embeddings_per_timestep_per_batch[:, -1]
+            tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
+            tf_initial_t = tf.constant(0, dtype=tf.int32)
+            tf_initial_state = self.tf_final_state
+            tf_initial_prev_output = self.tf_char_embeddings_per_timestep_per_batch[:1, -1]
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
 
             def iteration(t, state, prev_output, outputs):
-                current_timestep_embeddings = tf.reshape(
-                    tf.gather(self.tf_word_embeddings_per_batch_per_timestep, t),
-                    (self.tf_input_shape[1], self.word_embedding_model.vector_size)
-                )
                 with tf.variable_scope("rnn", reuse=True):
-                    prev_output, state = self.tf_enc_cell(
+                    prev_output, state = self.tf_predictor_cell(
                         inputs=prev_output,
                         state=state)
-                outputs = outputs.write(t, output)
+
+                # -- Apply softmax to cell output so rnn won't confuse itself.
+                #  Also re-apply shape because otherwise tf.while_loop will
+                #  complain about the shape of prev_output being unpredictable.
+                prev_output = tf.reshape(tf.concat([
+                    tf.nn.softmax(prev_output[:, :self.tf_num_lexical_classes], dim=1),
+                    tf.nn.softmax(prev_output[:, -self.tf_num_logical_classes:], dim=1)],
+                    axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
+
+                # -- Flatten output because only a single batch is actually predicted
+                outputs = outputs.write(t, tf.reshape(prev_output, shape=(-1,)))
                 return t + 1, state, prev_output, outputs
 
-            _, _, final_outputs = tf.while_loop(
+            _, _, _, final_outputs = tf.while_loop(
                 should_continue, iteration,
-                [initial_t, initial_state, initial_prev_output, initial_outputs]
-            )
-        return final_outputs.stack()
+                loop_vars=[tf_initial_t, tf_initial_state, tf_initial_prev_output, tf_stepwise_predictor_output])
+
+        tf_stepwise_predictor_output = final_outputs.stack()
+        return tf_maximum_prediction_length, tf_stepwise_predictor_output
 
     def _optimizer(self):
         with tf.name_scope("predictor_optimizer"):

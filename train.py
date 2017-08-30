@@ -1,3 +1,4 @@
+# (C) 2017 Klebert Engineering GmbH
 
 import sys
 import os
@@ -11,7 +12,9 @@ from deepspell.predictor import DSLstmPredictor
 training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
 training_grammar = DSGrammar("corpora/grammar.json", training_corpus)
 model = DSLstmPredictor(
-    training_corpus.total_num_features_per_character(), "models", "logs",
+    "models", "logs",
+    num_lexical_features=training_corpus.total_num_lexical_features_per_character(),
+    num_logical_features=training_corpus.total_num_logical_features_per_character(),
     learning_rate=0.003,
     learning_rate_decay=0.5,
     training_epochs=10,

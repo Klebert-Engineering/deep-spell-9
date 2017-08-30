@@ -1,3 +1,7 @@
+# (C) 2017 Klebert Engineering GmbH
+
+# ===============================[ Imports ]=============================
+
 import json
 import os
 
@@ -52,17 +56,26 @@ class DSPredictor:
         """
         pass
 
-    def complete(self, prefix_chars, prefix_classes, num_chars_to_predict=-1):
+    def complete(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
         """
         Use this method to predict a postfix for the given prefix with this model.
-        :param num_chars_to_predict: The maximum number of characters to predict, or -1, if prediction should be
-         performed until <EOL> is first predicted.
+        :param num_chars_to_predict: The number of characters to predict.
+        :param completion_corpus: This corpus indicates the set of tokens that may be predicted, as well
+         as the (char, embedding) mappings and terminal token classes.
         :param prefix_chars: The actual characters of the prefix to be completed.
         :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
          array that is exactly as long as `prefix_chars`. Each entry E_i must be the decimal numeric id of the
          class of character C_i.
-        :return: A pair like (postfix_chars as string, postfix_classes as list),
-         where len(postfix_classes) = len(postfix_chars).
+        :return: A pair like
+         (
+            postfix_chars as per-timestep list of list of pairs like (char, probability),
+            postfix_classes as per-timestep list of list of pairs like (class, probability)
+         ),
+         where len(postfix_classes) = len(postfix_chars) and len(postfix_classes) <= num_chars_to_predict.
+         E.g. if num_chars_to_predict=2, charset={a,b,c}, classes={0,1,2}, a prediction may look like:
+
+         ( [ [(a, .7),  [(b, .5)    [ [(1, .4),  [(2, .9)
+              (b, .2),   (c, .4)       (0, .3),   (1, .1)
+              (c, .1)],  (a, .1)] ],   (2, .3)],  (0, .0)] ] )
         """
         pass
-
