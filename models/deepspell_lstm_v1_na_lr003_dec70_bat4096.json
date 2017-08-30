@@ -1,0 +1,14 @@
+{
+  "batch_size": 4096,
+  "iteration": 2341,
+  "learning_rate": 0.003,
+  "learning_rate_decay": 0.7,
+  "state_size_per_layer": [
+    128,
+    128
+  ],
+  "training_epochs": 10,
+  "training_history": [
+    "na"
+  ]
+}

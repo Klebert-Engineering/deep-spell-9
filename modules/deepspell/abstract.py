@@ -51,3 +51,18 @@ class DSPredictor:
          for the train-test split of the corpus.
         """
         pass
+
+    def complete(self, prefix_chars, prefix_classes, num_chars_to_predict=-1):
+        """
+        Use this method to predict a postfix for the given prefix with this model.
+        :param num_chars_to_predict: The maximum number of characters to predict, or -1, if prediction should be
+         performed until <EOL> is first predicted.
+        :param prefix_chars: The actual characters of the prefix to be completed.
+        :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
+         array that is exactly as long as `prefix_chars`. Each entry E_i must be the decimal numeric id of the
+         class of character C_i.
+        :return: A pair like (postfix_chars as string, postfix_classes as list),
+         where len(postfix_classes) = len(postfix_chars).
+        """
+        pass
+

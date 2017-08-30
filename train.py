@@ -13,9 +13,9 @@ training_grammar = DSGrammar("corpora/grammar.json", training_corpus)
 model = DSLstmPredictor(
     training_corpus.total_num_features_per_character(), "models", "logs",
     learning_rate=0.003,
-    learning_rate_decay=0.9,
-    training_epochs=20,
-    batch_size=32,
+    learning_rate_decay=0.5,
+    training_epochs=10,
+    batch_size=4096,
     state_size_per_layer=(128, 128))
 
 model.train(training_corpus, training_grammar)

@@ -57,7 +57,7 @@ class DSCorpus:
         self.data = defaultdict(lambda: [])
         token_for_id = {}
 
-        with codecs.open(path) as corpus_file:
+        with codecs.open(path, encoding='utf-8') as corpus_file:
             print("Loading {} ...".format(path))
             for entry in corpus_file:
                 parts = entry.strip().split("\t")

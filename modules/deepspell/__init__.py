@@ -1,3 +1,3 @@
 from . import *
-__all__ = ['corpus', 'predictor']
+__all__ = ['corpus', 'predictor', 'grammar', 'abstract']
 
