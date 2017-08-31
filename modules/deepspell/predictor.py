@@ -336,29 +336,37 @@ class DSLstmPredictor(abstract.DSPredictor):
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
 
-            def iteration(t, state, prev_output, outputs):
+            def iteration(t, state, prev_output, predictions_per_timestep):
                 with tf.variable_scope("rnn", reuse=True):
                     prev_output, state = self.tf_predictor_cell(
                         inputs=prev_output,
                         state=state)
 
-                # -- Apply softmax to cell output so rnn won't confuse itself.
+                # -- Apply argmax/one-hot to cell output so rnn won't incrementally confuse itself.
                 #  Also re-apply shape because otherwise tf.while_loop will
                 #  complain about the shape of prev_output being unpredictable.
-                prev_output = tf.reshape(tf.concat([
-                    tf.nn.softmax(prev_output[:, :self.tf_num_lexical_classes], dim=1),
-                    tf.nn.softmax(prev_output[:, -self.tf_num_logical_classes:], dim=1)],
+                one_hot_output = tf.reshape(tf.concat([
+                        tf.one_hot(
+                            tf.argmax(prev_output[:, :self.tf_num_lexical_classes], axis=1),
+                            depth=self.tf_num_lexical_classes),
+                        tf.one_hot(
+                            tf.argmax(prev_output[:, -self.tf_num_logical_classes:], axis=1),
+                            depth=self.tf_num_logical_classes),
+                    ],
                     axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
 
-                # -- Flatten output because only a single batch is actually predicted
-                outputs = outputs.write(t, tf.reshape(prev_output, shape=(-1,)))
-                return t + 1, state, prev_output, outputs
+                # -- Softmax and flatten prediction because only a single batch is actually predicted
+                predictions_per_timestep = predictions_per_timestep.write(t, tf.reshape(tf.concat([
+                    tf.nn.softmax(prev_output[:, :self.tf_num_lexical_classes], dim=1),
+                    tf.nn.softmax(prev_output[:, -self.tf_num_logical_classes:], dim=1)],
+                    axis=1), shape=(-1,)))
+                return t + 1, state, one_hot_output, predictions_per_timestep
 
-            _, _, _, final_outputs = tf.while_loop(
+            _, _, _, tf_stepwise_predictor_output = tf.while_loop(
                 should_continue, iteration,
                 loop_vars=[tf_initial_t, tf_initial_state, tf_initial_prev_output, tf_stepwise_predictor_output])
 
-        tf_stepwise_predictor_output = final_outputs.stack()
+        tf_stepwise_predictor_output = tf_stepwise_predictor_output.stack()
         return tf_maximum_prediction_length, tf_stepwise_predictor_output
 
     def _optimizer(self):
