@@ -40,7 +40,7 @@ class DSLstmPredictor(abstract.DSPredictor):
 
     # -- The size of the hidden states for the LSTM, per layer.
     #  Each LSTM layer uses 2x of this amount, one for C (state) and one for H (mem).
-    state_size_per_layer = (256,)
+    extrapolator_state_size_per_layer = (256,)
 
     # -- This property indicates the corpora this model has been trained on
     #  in the past.
@@ -61,7 +61,9 @@ class DSLstmPredictor(abstract.DSPredictor):
         self.learning_rate_decay = kwargs.pop("learning_rate_decay", 0.9)
         self.training_epochs = kwargs.pop("training_epochs", 60)
         self.batch_size = kwargs.pop("batch_size", 48)
-        self.state_size_per_layer = kwargs.pop("state_size_per_layer", (256, 256))
+        self.extrapolator_state_size_per_layer = kwargs.pop("extrapolator_state_size_per_layer", (256, 256))
+        self.discriminator_forward_state_size_per_layer = kwargs.pop("discriminator_forward_state_size_per_layer", (256, 256))
+        self.discriminator_backward_state_size_per_layer = kwargs.pop("discriminator_backward_state_size_per_layer", (256, 256))
         self.training_history = kwargs.pop("training_history", [])
         self.iteration = kwargs.pop("iteration", 0)
         self.num_lexical_features = kwargs.pop("num_lexical_features", 0)
@@ -69,21 +71,24 @@ class DSLstmPredictor(abstract.DSPredictor):
 
         # -- Create Tensor Flow compute graph nodes
         self.tf_learning_rate = tf.placeholder(tf.float32)
-        (self.tf_char_embeddings_per_timestep_per_batch,
+        (self.tf_lexical_logical_embeddings_per_timestep_per_batch,
          self.tf_timesteps_per_batch,
          self.tf_num_lexical_classes,
          self.tf_num_logical_classes,
-         self.tf_input_shape,
-         self.tf_predictor_cell,
-         self.tf_char_predictions_per_timestep_per_batch,
-         self.tf_final_state) = self._predictor(self.num_logical_features+self.num_lexical_features)
+         self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape,
+         self.tf_extrapolator_cell,
+         self.tf_lexical_logical_predictions_per_timestep_per_batch,
+         self.tf_extrapolator_final_state_and_mem_stack) = self._extrapolator()
 
-        (self.tf_maximum_prediction_length,
-         self.tf_stepwise_predictor_output) = self._stepwise_predictor()
+        (self.tf_lexical_embeddings_per_timestep_per_batch,
+         self.tf_logical_predictions_per_timestep_per_batch) = self._discriminator()
+
+        (self.tf_maximum_stepwise_extrapolation_length,
+         self.tf_stepwise_extrapolator_output) = self._stepwise_extrapolator()
 
         (self.tf_train_op,
          self.tf_logical_loss_summary,
-         self.tf_lexical_loss_summary) = self._optimizer()
+         self.tf_lexical_loss_summary) = self._extrapolator_optimizer()
 
         self.tf_saver = tf.train.Saver()
         self.tf_init_op = tf.global_variables_initializer()
@@ -112,7 +117,9 @@ class DSLstmPredictor(abstract.DSPredictor):
             "learning_rate_decay": self.learning_rate_decay,
             "training_epochs": self.training_epochs,
             "batch_size": self.batch_size,
-            "state_size_per_layer": self.state_size_per_layer,
+            "extrapolator_state_size_per_layer": self.extrapolator_state_size_per_layer,
+            "discriminator_forward_state_size_per_layer": self.discriminator_forward_state_size_per_layer,
+            "discriminator_backward_state_size_per_layer": self.discriminator_backward_state_size_per_layer,
             "training_history": self.training_history,
             "iteration": self.iteration,
             "num_lexical_features": self.num_lexical_features,
@@ -134,7 +141,7 @@ class DSLstmPredictor(abstract.DSPredictor):
         with open(file, 'w') as open_file:
             json.dump(params, open_file, indent=2, sort_keys=True)
 
-    def train(self, training_corpus, sample_grammar, train_test_split=None):
+    def train_extrapolator(self, training_corpus, sample_grammar, train_test_split=None):
         """Documentation in base Model class"""
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
@@ -143,8 +150,8 @@ class DSLstmPredictor(abstract.DSPredictor):
         self.training_history += [training_corpus.name]
         self.store()
 
-        print("Training commencing for {}!".format(self.name()))
-        print("------------------------------------------------")
+        print("Extrapolator Training commencing for {}!".format(self.name()))
+        print("------------------------------------------------------")
         current_learning_rate = self.learning_rate
         if os.path.isdir(self.log_dir):
             self.tf_summary_writer = tf.summary.FileWriter(os.path.join(self.log_dir, self.name()))
@@ -187,7 +194,7 @@ class DSLstmPredictor(abstract.DSPredictor):
                         self.tf_lexical_loss_summary
                     ],
                     feed_dict={
-                        self.tf_char_embeddings_per_timestep_per_batch: batch,
+                        self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
                         self.tf_timesteps_per_batch: lengths,
                         self.tf_learning_rate: current_learning_rate,
                         self.tf_num_lexical_classes: self.num_lexical_features,
@@ -218,11 +225,11 @@ class DSLstmPredictor(abstract.DSPredictor):
                     self.store()
                     print("Epoch", epoch_count, "/", self.training_epochs, "complete after",
                           float(time.time() - start_time)/60.0, "minute(s).")
-                    print("------------------------------------------------")
+                    print("------------------------------------------------------")
 
         print("Optimization Finished!")
 
-    def complete(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+    def extrapolate(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
         """Documentation in base Model class"""
         assert isinstance(completion_corpus, corpus.DSCorpus)
         assert len(prefix_chars) == len(prefix_classes)
@@ -233,33 +240,33 @@ class DSLstmPredictor(abstract.DSPredictor):
             completion_corpus.embed_prefix(prefix_chars, prefix_classes),
             newshape=(1, len(prefix_chars), self.num_logical_features + self.num_lexical_features))
 
-        stepwise_predictor_output = self.session.run(self.tf_stepwise_predictor_output, feed_dict={
-            self.tf_char_embeddings_per_timestep_per_batch: embedded_prefix,
+        stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
+            self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
             self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
             self.tf_num_lexical_classes: self.num_lexical_features,
             self.tf_num_logical_classes: self.num_logical_features,
-            self.tf_maximum_prediction_length: num_chars_to_predict
+            self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
         })
-        assert len(stepwise_predictor_output) == num_chars_to_predict
+        assert len(stepwise_extrapolator_output) == num_chars_to_predict
 
         completion_chars = []
         completion_classes = []
 
-        for prediction in stepwise_predictor_output:
-            char_pd = sorted((  # sort char predictions by probability in descending order
+        for prediction in stepwise_extrapolator_output:
+            lexical_pd = sorted((  # sort char predictions by probability in descending order
                     (corpus.CHAR_SUBSET[i], p)
                     for i, p in enumerate(prediction[:self.num_lexical_features])
                 ),
                 key=lambda entry: entry[1],
                 reverse=True)
-            class_pd = sorted((  # sort class predictions by probability in descending order
+            logical_pd = sorted((  # sort class predictions by probability in descending order
                     (completion_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
                     for i, p in enumerate(prediction[-self.num_logical_features:])
                 ),
                 key=lambda entry: entry[1],
                 reverse=True)
-            completion_chars.append(char_pd)
-            completion_classes.append(class_pd)
+            completion_chars.append(lexical_pd)
+            completion_classes.append(logical_pd)
 
         return completion_chars, completion_classes
 
@@ -280,14 +287,15 @@ class DSLstmPredictor(abstract.DSPredictor):
 
     # ----------------------[ Private Methods ]----------------------
 
-    def _predictor(self, total_features_per_character):
+    def _extrapolator(self):
         # -- Input placeholders: batch of training sequences and their lengths
-        with tf.name_scope("predictor"):
-            tf_char_embeddings_per_timestep_per_batch = tf.placeholder(tf.float32,
-                                                                       [None, None, total_features_per_character])
+        with tf.name_scope("extrapolator"):
+            tf_lexical_logical_embeddings_per_timestep_per_batch = tf.placeholder(
+                tf.float32,
+                [None, None, self.num_logical_features + self.num_lexical_features])
             tf_num_lexical_classes = tf.placeholder(tf.int32)
             tf_num_logical_classes = tf.placeholder(tf.int32)
-            tf_input_shape = tf.shape(tf_char_embeddings_per_timestep_per_batch)
+            tf_input_shape = tf.shape(tf_lexical_logical_embeddings_per_timestep_per_batch)
             tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
 
             # -- Ensure that input shape matches logical/lexical class split!
@@ -298,47 +306,77 @@ class DSLstmPredictor(abstract.DSPredictor):
             with tf.control_dependencies([tf_verify_logical_lexical_split_op]):
 
                 # -- LSTM cell for prediction
-                tf_predictor_cell = tf.contrib.rnn.OutputProjectionWrapper(
+                tf_extrapolator_cell = tf.contrib.rnn.OutputProjectionWrapper(
                     tf.contrib.rnn.MultiRNNCell([
                         tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                        self.state_size_per_layer
+                        self.extrapolator_state_size_per_layer
                     ]),
-                    total_features_per_character
+                    self.num_logical_features + self.num_lexical_features
                 )
-                predictor_initial_state = tf_predictor_cell.zero_state(tf_input_shape[0], tf.float32)
+                extrapolator_initial_state = tf_extrapolator_cell.zero_state(tf_input_shape[0], tf.float32)
 
                 # -- Create a dynamically unrolled RNN to produce the embedded document vector
-                tf_char_predictions_per_timestep_per_batch, tf_final_state = tf.nn.dynamic_rnn(
-                    cell=tf_predictor_cell,
-                    inputs=tf_char_embeddings_per_timestep_per_batch,
+                tf_lexical_logical_predictions_per_timestep_per_batch, tf_final_state = tf.nn.dynamic_rnn(
+                    cell=tf_extrapolator_cell,
+                    inputs=tf_lexical_logical_embeddings_per_timestep_per_batch,
                     sequence_length=tf_timesteps_per_batch,
-                    initial_state=predictor_initial_state,
+                    initial_state=extrapolator_initial_state,
                     time_major=False)
 
         return (
-            tf_char_embeddings_per_timestep_per_batch,
+            tf_lexical_logical_embeddings_per_timestep_per_batch,
             tf_timesteps_per_batch,
             tf_num_lexical_classes,
             tf_num_logical_classes,
             tf_input_shape,
-            tf_predictor_cell,
-            tf_char_predictions_per_timestep_per_batch,
+            tf_extrapolator_cell,
+            tf_lexical_logical_predictions_per_timestep_per_batch,
             tf_final_state)
 
-    def _stepwise_predictor(self):
-        with tf.name_scope("stepwise_predictor"):
+    def _discriminator(self):
+        with tf.name_scope("discriminator"):
+            # -- Input placeholders: batch of training sequences and their lengths
+            tf_lexical_embeddings_per_timestep_per_batch = tf.placeholder(
+                tf.float32,
+                [None, None, self.num_lexical_features])
+            tf_input_shape = tf.shape(tf_lexical_embeddings_per_timestep_per_batch)
+
+            # -- Backward pass
+
+            # -- Forward pass
+            tf_discriminator_forward_cell = tf.contrib.rnn.OutputProjectionWrapper(
+                tf.contrib.rnn.MultiRNNCell([
+                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                    self.discriminator_forward_state_size_per_layer
+                ]),
+                self.num_logical_features
+            )
+            # -- Create a dynamically unrolled RNN to produce the character category discrimination
+            tf_logical_predictions_per_timestep_per_batch, _ = tf.nn.dynamic_rnn(
+                cell=tf_discriminator_forward_cell,
+                inputs=tf_lexical_embeddings_per_timestep_per_batch,
+                sequence_length=self.tf_timesteps_per_batch,
+                initial_state=tf_discriminator_forward_cell.zero_state(tf_input_shape[0], tf.float32),
+                time_major=False)
+
+        return (
+            tf_lexical_embeddings_per_timestep_per_batch,
+            tf_logical_predictions_per_timestep_per_batch)
+
+    def _stepwise_extrapolator(self):
+        with tf.name_scope("stepwise_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
             tf_initial_t = tf.constant(0, dtype=tf.int32)
-            tf_initial_state = self.tf_final_state
-            tf_initial_prev_output = self.tf_char_embeddings_per_timestep_per_batch[:1, -1]
+            tf_initial_state = self.tf_extrapolator_final_state_and_mem_stack
+            tf_initial_prev_output = self.tf_lexical_logical_embeddings_per_timestep_per_batch[:1, -1]
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
 
             def iteration(t, state, prev_output, predictions_per_timestep):
                 with tf.variable_scope("rnn", reuse=True):
-                    prev_output, state = self.tf_predictor_cell(
+                    prev_output, state = self.tf_extrapolator_cell(
                         inputs=prev_output,
                         state=state)
 
@@ -369,8 +407,8 @@ class DSLstmPredictor(abstract.DSPredictor):
         tf_stepwise_predictor_output = tf_stepwise_predictor_output.stack()
         return tf_maximum_prediction_length, tf_stepwise_predictor_output
 
-    def _optimizer(self):
-        with tf.name_scope("predictor_optimizer"):
+    def _extrapolator_optimizer(self):
+        with tf.name_scope("extrapolator_optimizer"):
             # -- Obtain global training step
             global_step = tf.contrib.framework.get_global_step()
 
@@ -387,14 +425,14 @@ class DSLstmPredictor(abstract.DSPredictor):
 
             # -- Calculate the average cross entropy for the logical classes per timestep
             tf_logical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                 labels=self.tf_char_embeddings_per_timestep_per_batch[:, 1:, -self.tf_num_logical_classes:],
-                 logits=self.tf_char_predictions_per_timestep_per_batch[:, :-1, -self.tf_num_logical_classes:],
+                 labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, -self.tf_num_logical_classes:],
+                 logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, -self.tf_num_logical_classes:],
                  dim=2))
 
             # -- Calculate the average cross entropy for the lexical classes per timestep
             tf_lexical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                labels=self.tf_char_embeddings_per_timestep_per_batch[:, 1:, :self.tf_num_lexical_classes],
-                logits=self.tf_char_predictions_per_timestep_per_batch[:, :-1, :self.tf_num_lexical_classes],
+                labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, :self.tf_num_lexical_classes],
+                logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, :self.tf_num_lexical_classes],
                 dim=2))
 
             # -- Create summaries for TensorBoard

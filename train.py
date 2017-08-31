@@ -19,6 +19,8 @@ model = DSLstmPredictor(
     learning_rate_decay=0.5,
     training_epochs=10,
     batch_size=4096,
-    state_size_per_layer=(128, 128))
+    extrapolator_state_size_per_layer=(256, 256),
+    discriminator_forward_state_size_per_layer=(256,),
+    discriminator_backward_state_size_per_layer=(256,))
 
-model.train(training_corpus, training_grammar)
+model.train_extrapolator(training_corpus, training_grammar)

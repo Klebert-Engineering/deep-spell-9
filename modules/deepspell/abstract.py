@@ -45,7 +45,7 @@ class DSPredictor:
         """
         pass
 
-    def train(self, corpus, sample_grammar, train_test_split=None):
+    def train_extrapolator(self, corpus, sample_grammar, train_test_split=None):
         """
         Train this model with documents from a given corpus.
         :param corpus: The corpus with documents to train from.
@@ -56,7 +56,7 @@ class DSPredictor:
         """
         pass
 
-    def complete(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+    def extrapolate(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
         """
         Use this method to predict a postfix for the given prefix with this model.
         :param num_chars_to_predict: The number of characters to predict.

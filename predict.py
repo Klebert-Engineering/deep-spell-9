@@ -66,7 +66,7 @@ while True:
     if not prefix_class_names:
         continue
 
-    completion_chars, completion_classes = model.complete(training_corpus, prefix_chars, prefix_class_names, 24)
+    completion_chars, completion_classes = model.extrapolate(training_corpus, prefix_chars, prefix_class_names, 24)
     char_cols = [[] for _ in range(len(completion_chars))]
     class_cols = [[] for _ in range(len(completion_chars))]
     for t in range(len(completion_chars)):

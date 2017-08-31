@@ -5,7 +5,15 @@
   "learning_rate_decay": 0.7,
   "num_lexical_features": 68,
   "num_logical_features": 6,
-  "state_size_per_layer": [
+  "extrapolator_state_size_per_layer": [
+    128,
+    128
+  ],
+  "discriminator_forward_state_size_per_layer": [
+    128,
+    128
+  ],
+  "discriminator_backward_state_size_per_layer": [
     128,
     128
   ],
