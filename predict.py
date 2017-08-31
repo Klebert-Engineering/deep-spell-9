@@ -66,17 +66,17 @@ while True:
     if not prefix_class_names:
         continue
 
-    completion_chars, completion_classes = model.complete(training_corpus, prefix_chars, prefix_class_names, 12)
+    completion_chars, completion_classes = model.complete(training_corpus, prefix_chars, prefix_class_names, 24)
     char_cols = [[] for _ in range(len(completion_chars))]
     class_cols = [[] for _ in range(len(completion_chars))]
     for t in range(len(completion_chars)):
         for i in range(3):
-            char_cols[t].append(" {} (p={}) ".format(completion_chars[t][i][0], str(completion_chars[t][i][1])[:4]))
+            char_cols[t].append(" {} {}% ".format(completion_chars[t][i][0], str(completion_chars[t][i][1])[2:4]))
         for i in range(3):
-            class_cols[t].append(" {} (p={}) ".format(completion_classes[t][i][0], str(completion_classes[t][i][1])[:4]))
+            class_cols[t].append(" {} {}% ".format(completion_classes[t][i][0][:2], str(completion_classes[t][i][1])[2:4]))
     max_col_width = max(len(s) for col in class_cols+char_cols for s in col)
     for line in range(len(char_cols[0])):
-        print("|".join(col[line].ljust(max_col_width) for col in char_cols))
-    print(" "+("-"*(len(completion_chars)-1) + "-"*max_col_width*len(completion_chars)))
+        print(" " + "|".join(col[line].ljust(max_col_width) for col in char_cols))
+    print(" " + "|".join(["-"*max_col_width] * len(completion_chars)))
     for line in range(len(class_cols[0])):
-        print("|".join(col[line].ljust(max_col_width) for col in class_cols))
+        print(" " + "|".join(col[line].ljust(max_col_width) for col in class_cols))
