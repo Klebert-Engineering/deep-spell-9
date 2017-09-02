@@ -37,6 +37,7 @@ class DSPredictor:
         assert isinstance(file_or_folder, str)
         self.log_dir = log_dir
         self.file = file_or_folder
+        self.tf_checkpoint_path = ""
         self.name_scope = name_scope
         self.version = version
         if os.path.isfile(file_or_folder) and isinstance(kwargs_to_update, dict):
@@ -66,19 +67,14 @@ class DSPredictor:
         self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape = tf.shape(
             self.tf_lexical_logical_embeddings_per_timestep_per_batch)
         self.tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
-
-        self.tf_saver = tf.train.Saver()
-        self.tf_init_op = tf.global_variables_initializer()
-        self.tf_summary_writer = None  # The summary writer will be created when training starts
-        self.session = tf.Session()
-        self.session.run(self.tf_init_op)
+        self.tf_saver = None
+        self.session = None
 
     def store(self, file=None):
         """
         Store this model under a certain file path.
         :param file: The file path under which it should be stored.
         """
-        assert isinstance(file, str)
         params = self.info()
         if not file:
             folder = os.path.dirname(self.file)
@@ -112,8 +108,8 @@ class DSPredictor:
         It will also serve as the name for all files (.json, .data-*, .index, .meta)
         that are associated with the model.
         """
-        return "deepspell_{}_v{}_{}_lr{}_dec{}_bat{}".format(
-            self.name_scope,
+        return "deepsp_{}-v{}_{}_lr{}_dec{}_bat{}".format(
+            self.name_scope[:5],
             self.version,
             "+".join(self.training_history),
             str(self.learning_rate)[2:],
@@ -139,8 +135,14 @@ class DSPredictor:
 
     # ----------------------[ Private Methods ]----------------------
 
-    def _train(self, train_op, summary_ops, training_corpus, sample_grammar, train_test_split, truncate_samples):
-        """Documentation in base Model class"""
+    def _train(self,
+               train_op,
+               summary_ops,
+               training_corpus,
+               sample_grammar,
+               train_test_split,
+               min_sample_length_before_truncation=-1):
+
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
         assert self.num_lexical_features == training_corpus.total_num_lexical_features_per_character()
@@ -179,7 +181,8 @@ class DSPredictor:
                 self.batch_size,
                 sample_grammar,
                 epoch_leftover_documents,
-                train_test_split)
+                train_test_split,
+                min_sample_length_before_truncation)
 
             if print_iterator_size:
                 sys.stdout.write("Created new randomized collection from {} samples. Now training ...\n  ".format(
@@ -221,6 +224,11 @@ class DSPredictor:
         print("Optimization Finished!")
 
     def _finish_init(self):
+        # Create saver only after the graph is initialized
+        self.tf_saver = tf.train.Saver()
+        self.tf_init_op = tf.global_variables_initializer()
+        self.session = tf.Session()
+        self.session.run(self.tf_init_op)
         print("Compute Graph Initialized.")
         print(" Trainable Variables:", tf.trainable_variables())
         if os.path.isfile(self.file):

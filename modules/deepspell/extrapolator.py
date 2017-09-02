@@ -40,10 +40,10 @@ class DSLstmExtrapolator(abstract.DSPredictor):
         self._train(
             self.tf_extrapolator_train_op,
             [self.tf_extrapolator_lexical_loss_summary, self.tf_extrapolator_logical_loss_summary],
-            training_corpus, sample_grammar, train_test_split, truncate_samples=False)
+            training_corpus, sample_grammar, train_test_split)
 
     def name(self):
-        return super().name()+"_"+"-".join(self.state_size_per_layer)
+        return super().name()+"_"+"-".join(str(n) for n in self.state_size_per_layer)
 
     def info(self):
         result = super().info()

@@ -15,10 +15,13 @@ from . import grammar
 
 """
 These constants define an ASCII subset which will be the primary feature-set emitted by FtsCorpus
-for encoding characters. Any unsupported characters will be encoded with the index of '_'. 
+for encoding characters. The set contains the following special characters:
+* Any unsupported characters will be encoded with the index of '_'.
+* Any characters of the EOL class will be encoded with '$'
 """
-CHAR_SUBSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-., /_"
+CHAR_SUBSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-., /_$"
 CHAR_SUBSET_DEFAULT = CHAR_SUBSET.index("_")
+CHAR_SUBSET_EOL = CHAR_SUBSET.index("$")
 CHAR_SUBSET_INDEX = defaultdict(lambda: CHAR_SUBSET_DEFAULT, ((c, i) for i, c in enumerate(CHAR_SUBSET)))
 
 # ============================[ FtsCorpus ]==========================
@@ -30,31 +33,13 @@ class DSCorpus:
     which may serve as components of FTS queries.
     """
 
-    # ------------------------[ Properties ]------------------------
-
-    """
-    @class_ids is a dictionary like:
-    { <class_name_string>: <class_id> }
-    """
-    class_ids = None
-    eol_class_id = 0
-
-    """
-    @data is a dictionary like:
-    { <class_id>: [<FtsToken>] }
-    """
-    data = None
-
-    """
-    @name An arbitrary short identifier for the corpus.
-    """
-    name = ""
-
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, path, name):
         self.name = name
+        # -- class_ids is a dictionary like { <class_name_string>: <class_id> }
         self.class_ids = defaultdict(lambda: len(self.class_ids))
+        # -- data is a dictionary like: { <class_id>: [<FtsToken>] }
         self.data = defaultdict(lambda: [])
         token_for_id = {}
 
@@ -101,7 +86,12 @@ class DSCorpus:
     def total_num_logical_features_per_character(self):
         return len(self.class_ids)
 
-    def get_batch_and_lengths(self, batch_size, sample_grammar, epoch_leftover_indices=None, train_test_split=None):
+    def get_batch_and_lengths(self,
+                              batch_size,
+                              sample_grammar,
+                              epoch_leftover_indices=None,
+                              train_test_split=None,
+                              min_num_chars_truncate=-1):
         """
         Returns a new batch-first character feature matrix like [batch_size][sample_length][char_features].
         :param batch_size: The number of sample sequences to return.
@@ -110,6 +100,13 @@ class DSCorpus:
          Should be either None or previous 3rd return value.
          A (return) value of None or [] indicates the start of a new epoch.
         :param train_test_split: Unused.
+        :param min_num_chars_truncate: Randomly truncate the generated samples
+         to a length of <min_num_chars_truncate>.
+         For example, let min_num_chars_truncate=4 and sample="Los Angeles California".
+         The sample will be randomly truncated to a length between 4 and 22, so
+         it may become one of {"Los ", "Los A", "Los An", .., "Los Angeles California"}.
+         This is useful to train the discriminator network to recognize categories from incomplete samples.
+         Truncation will be omitted entirely if min_num_chars_truncate<0.
         """
         assert (isinstance(sample_grammar, grammar.DSGrammar))
         # Make sure that training document order is randomized
@@ -128,11 +125,10 @@ class DSCorpus:
             for token_id in batch_token_indices]
         # Find the longest phrase, such that all lines in the output matrix can be length-aligned
         max_phrase_length = max(
-            # Length of all tokens ...                        + White space ...      + End-of-line
-            sum(len(token.string) for token in phrase_tokens) + len(phrase_tokens)-1 + 1
+            self._token_sequence_length(phrase_tokens)
             for phrase_tokens in batch_phrases)
         batch_embedding_sequences = np.asarray([
-            self._embed(phrase_tokens, max_phrase_length)
+            self._embed(phrase_tokens, max_phrase_length, min_num_chars_truncate)
             for phrase_tokens in batch_phrases], np.float32)
         batch_lengths = np.asarray([
             len(batch_embedding_sequence)
@@ -173,28 +169,49 @@ class DSCorpus:
 
     # ----------------------[ Private Methods ]----------------------
 
-    def _embed(self, token_list, length_to_align):
+    def _embed(self, token_list, length_to_align, min_chars_truncate):
         """
         Embeds a sequence of FtsToken instances into a 2D feature matrix
         like [num_characters][total_num_features_per_character()].
         """
         result = []
-        for token in token_list:
-            assert(isinstance(token, grammar.DSToken))
+        char_class_seq = [
+            (char, token.id[0])
+            for i, token in enumerate(token_list)
+            for char in (" " if i > 0 else "")+token.string]
+
+        if len(char_class_seq) > min_chars_truncate and min_chars_truncate >= 0:
+            truncation_point = (int(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate)) +
+                                min_chars_truncate)
+            char_class_seq = char_class_seq[:truncation_point]
+        for char, token_class in char_class_seq:
             # Iterate over all tokens. Prepend whitespace if necessary.
-            for char in (" " if result else "")+token.string:
-                char_embedding = np.zeros(self.total_num_features_per_character())
-                # Set character label
-                char_embedding[CHAR_SUBSET_INDEX[char]] = 1.
-                # Set class label
-                char_embedding[self.total_num_lexical_features_per_character() + token.id[0]] = 1.
-                result.append(char_embedding)
-        # Append EOL char
-        char_embedding = np.zeros(self.total_num_features_per_character())
-        char_embedding[self.total_num_lexical_features_per_character() + self.eol_class_id] = 1.
-        result.append(char_embedding)
-        # Align output length
-        assert len(result) <= length_to_align
+            char_embedding = np.zeros(self.total_num_features_per_character())
+            # Set character label
+            char_embedding[CHAR_SUBSET_INDEX[char]] = 1.
+            # Set class label
+            char_embedding[self.total_num_lexical_features_per_character() + token_class] = 1.
+            result.append(char_embedding)
+
+        # Align output length by padding with EOL chars
+        assert len(result) < length_to_align
         while len(result) < length_to_align:
-            result.append(np.zeros(self.total_num_features_per_character()))
+            char_embedding = np.zeros(self.total_num_features_per_character())
+            char_embedding[CHAR_SUBSET_EOL] = 1.
+            char_embedding[self.total_num_lexical_features_per_character() + self.eol_class_id] = 1.
+            result.append(char_embedding)
         return np.asarray(result, np.float32)
+
+    @staticmethod
+    def _token_sequence_length(tokens):
+        """
+        Calculates the length of the String that would result if all the strings
+        in the given list of DSToken objects were concatenated, including 1 separator
+        between all tokens and a final End-Of-Line character.
+        :param tokens: List of DSToken objects.
+        """
+        return (
+            sum(len(token.string) for token in tokens) +  # Length of all tokens
+            len(tokens) - 1 +                             # White space
+            1                                             # End-of-line
+        )

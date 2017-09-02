@@ -24,6 +24,8 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         # -- Read params
         self.fw_state_size_per_layer = kwargs.pop("fw_state_size_per_layer", [128, 128])
         self.bw_state_size_per_layer = kwargs.pop("bw_state_size_per_layer", [128, 128])
+        self.min_sample_length_before_truncation = kwargs.pop("min_sample_length_before_truncation", 5)
+
         # -- Create Tensor Flow compute graph nodes
         self.tf_logical_predictions_per_timestep_per_batch = self._discriminator()
         (self.tf_discriminator_train_op,
@@ -34,12 +36,13 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         self._train(
             self.tf_discriminator_train_op,
             [self.tf_discriminator_logical_loss_summary],
-            training_corpus, sample_grammar, train_test_split, truncate_samples=False)
+            training_corpus, sample_grammar, train_test_split,
+            min_sample_length_before_truncation=self.min_sample_length_before_truncation)
 
     def name(self):
         return super().name()+"_fw{}_bw{}".format(
-            "-".join(self.fw_state_size_per_layer),
-            "-".join(self.fw_state_size_per_layer))
+            "-".join(str(n) for n in self.fw_state_size_per_layer),
+            "-".join(str(n) for n in self.bw_state_size_per_layer))
 
     def info(self):
         result = super().info()
@@ -64,7 +67,7 @@ class DSLstmDiscriminator(abstract.DSPredictor):
                 self.bw_state_size_per_layer])
             tf_backward_embeddings_per_timestep_per_batch, _ = tf.nn.dynamic_rnn(
                 cell=tf_discriminator_backward_cell,
-                inputs=tf.reverse(tf_lexical_embeddings_per_timestep_per_batch, axis=1),
+                inputs=tf.reverse(tf_lexical_embeddings_per_timestep_per_batch, axis=[1]),
                 initial_state=tf_discriminator_backward_cell.zero_state(
                     self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape[0],
                     tf.float32),
