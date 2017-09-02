@@ -26,9 +26,9 @@ class DSToken:
     # ------------------------[ Properties ]------------------------
 
     """
-    The id represents a compact representation of the tokens global id.
-    The first entry is the numeric id of the tokens class as determined by
-    FtsCorpus, and the second entry is the local id of the token within the class.
+    This is the tokens global id:
+    * The first entry is the numeric id of the tokens class as determined by FtsCorpus.
+    * The second entry is the local id of the token within the class.
     """
     id = (0, 0)
 

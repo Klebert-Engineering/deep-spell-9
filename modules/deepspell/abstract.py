@@ -2,31 +2,44 @@
 
 # ===============================[ Imports ]=============================
 
-import json
+import tensorflow as tf
+import sys
 import os
+import json
+import time
+
+# ============================[ Local Imports ]==========================
+
+from . import corpus
+from . import grammar
 
 # ====================[ Abstract Predictor Interface ]===================
 
 
 class DSPredictor:
 
-    # ------------------------[ Properties ]------------------------
-
-    file = ""
-
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, file_or_folder="", kwargs_to_update=None):
+    def __init__(self, name_scope="unnamed", version=0, file_or_folder="", log_dir="", kwargs_to_update=None):
         """
         Instantiate or restore a Representation Model.
+        :param name_scope: This will be included in the auto-generated model name,
+         as well as the name for the variable scope of this model.
+        :param version: This will be included in the auto-generated model name.
         :param file_or_folder: [optional] A file from which the model
          should be restored, or to which it should be saved.
+        :param log_dir: The directory which will be served by tensor board,
+         where tensor flow logs for this model should be written to.
         :param kwargs_to_update: [optional] A kwargs dictionary
          that should be updated with information stored in JSON-format
          under @file.
         """
         assert isinstance(file_or_folder, str)
+        self.log_dir = log_dir
         self.file = file_or_folder
+        self.tf_checkpoint_path = ""
+        self.name_scope = name_scope
+        self.version = version
         if os.path.isfile(file_or_folder) and isinstance(kwargs_to_update, dict):
             print("Loading model '{}'...".format(file_or_folder))
             assert os.path.splitext(file_or_folder)[1] == ".json"
@@ -37,13 +50,46 @@ class DSPredictor:
                         kwargs_to_update[key] = value
         elif file_or_folder:
             assert os.path.isdir(file_or_folder)
+        self.batch_size = kwargs_to_update.pop("batch_size", 4096)
+        self.iteration = kwargs_to_update.pop("iteration", 2341)
+        self.learning_rate = kwargs_to_update.pop("learning_rate", 0.003)
+        self.learning_rate_decay = kwargs_to_update.pop("learning_rate_decay", 0.7)
+        self.training_epochs = kwargs_to_update.pop("training_epochs", 10)
+        self.training_history = kwargs_to_update.pop("training_history", [])
+        self.num_lexical_features = kwargs_to_update.pop("num_lexical_features", 0)
+        self.num_logical_features = kwargs_to_update.pop("num_logical_features", 0)
 
-    def store(self, file):
+        # -- Create basic Tensor Flow nodes
+        self.tf_learning_rate = tf.placeholder(tf.float32)
+        self.tf_lexical_logical_embeddings_per_timestep_per_batch = tf.placeholder(
+            tf.float32,
+            [None, None, self.num_logical_features + self.num_lexical_features])
+        self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape = tf.shape(
+            self.tf_lexical_logical_embeddings_per_timestep_per_batch)
+        self.tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
+        self.tf_saver = None
+        self.session = None
+
+    def store(self, file=None):
         """
         Store this model under a certain file path.
         :param file: The file path under which it should be stored.
         """
-        pass
+        params = self.info()
+        if not file:
+            folder = os.path.dirname(self.file)
+            assert os.path.isdir(folder)
+            file = os.path.join(folder, self.name() + ".json")
+        assert os.path.splitext(file)[1] == ".json"
+        self.file = file
+        self.tf_checkpoint_path = os.path.splitext(file)[0]
+        if os.path.isfile(file):
+            print("Overwriting '{}' ...".format(self.tf_checkpoint_path))
+        else:
+            print("Creating '{}' ...".format(self.tf_checkpoint_path))
+
+        with open(file, 'w') as open_file:
+            json.dump(params, open_file, indent=2, sort_keys=True)
 
     def train(self, corpus, sample_grammar, train_test_split=None):
         """
@@ -56,26 +102,142 @@ class DSPredictor:
         """
         pass
 
-    def complete(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+    def name(self):
         """
-        Use this method to predict a postfix for the given prefix with this model.
-        :param num_chars_to_predict: The number of characters to predict.
-        :param completion_corpus: This corpus indicates the set of tokens that may be predicted, as well
-         as the (char, embedding) mappings and terminal token classes.
-        :param prefix_chars: The actual characters of the prefix to be completed.
-        :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
-         array that is exactly as long as `prefix_chars`. Each entry E_i must be the decimal numeric id of the
-         class of character C_i.
-        :return: A pair like
-         (
-            postfix_chars as per-timestep list of list of pairs like (char, probability),
-            postfix_classes as per-timestep list of list of pairs like (class, probability)
-         ),
-         where len(postfix_classes) = len(postfix_chars) and len(postfix_classes) <= num_chars_to_predict.
-         E.g. if num_chars_to_predict=2, charset={a,b,c}, classes={0,1,2}, a prediction may look like:
+        :return: This name will identify the log output from this model in Tensorboard.
+        It will also serve as the name for all files (.json, .data-*, .index, .meta)
+        that are associated with the model.
+        """
+        return "deepsp_{}-v{}_{}_lr{}_dec{}_bat{}".format(
+            self.name_scope[:5],
+            self.version,
+            "+".join(self.training_history),
+            str(self.learning_rate)[2:],
+            str(int(self.learning_rate_decay * 100)),
+            str(self.batch_size))
 
-         ( [ [(a, .7),  [(b, .5)    [ [(1, .4),  [(2, .9)
-              (b, .2),   (c, .4)       (0, .3),   (1, .1)
-              (c, .1)],  (a, .1)] ],   (2, .3)],  (0, .0)] ] )
+    def info(self):
         """
-        pass
+        This method will be called by save to determine values for variables that should
+        be stored in the models json descriptor.
+        :return: A dictionary that may be updated and returned by subclasses.
+        """
+        return {
+            "learning_rate": self.learning_rate,
+            "learning_rate_decay": self.learning_rate_decay,
+            "training_epochs": self.training_epochs,
+            "batch_size": self.batch_size,
+            "training_history": self.training_history,
+            "iteration": self.iteration,
+            "num_lexical_features": self.num_lexical_features,
+            "num_logical_features": self.num_logical_features
+        }
+
+    # ----------------------[ Private Methods ]----------------------
+
+    def _train(self,
+               train_op,
+               summary_ops,
+               training_corpus,
+               sample_grammar,
+               train_test_split,
+               min_sample_length_before_truncation=-1):
+
+        assert isinstance(training_corpus, corpus.DSCorpus)
+        assert isinstance(sample_grammar, grammar.DSGrammar)
+        assert self.num_lexical_features == training_corpus.total_num_lexical_features_per_character()
+        assert self.num_logical_features == training_corpus.total_num_logical_features_per_character()
+        self.training_history += [training_corpus.name]
+        self.store()
+
+        print("Training commencing for {}!".format(self.name()))
+        print("------------------------------------------------------")
+        current_learning_rate = self.learning_rate
+        if os.path.isdir(self.log_dir):
+            self.tf_summary_writer = tf.summary.FileWriter(os.path.join(self.log_dir, self.name()))
+            self.tf_summary_writer.add_graph(tf.get_default_graph())
+        else:
+            print("No valid log dir issued. Log will not be written!")
+
+        ops = [train_op] + summary_ops
+        epoch_leftover_documents = None
+        epoch_count = 0
+        start_time = time.time()
+
+        # -- Commence training loop
+        num_samples_done = 0
+        prev_percent_done = 0
+        print_iterator_size = False
+
+        while epoch_count < self.training_epochs:
+
+            if not epoch_leftover_documents:
+                print("New epoch at learning rate {}.".format(current_learning_rate))
+                num_samples_done = 0
+                prev_percent_done = 0
+                print_iterator_size = True
+
+            batch, lengths, epoch_leftover_documents = training_corpus.get_batch_and_lengths(
+                self.batch_size,
+                sample_grammar,
+                epoch_leftover_documents,
+                train_test_split,
+                min_sample_length_before_truncation)
+
+            if print_iterator_size:
+                sys.stdout.write("Created new randomized collection from {} samples. Now training ...\n  ".format(
+                    len(epoch_leftover_documents) + len(batch)))
+                print_iterator_size = False
+
+            results = self.session.run(ops, feed_dict={
+                self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
+                self.tf_timesteps_per_batch: lengths,
+                self.tf_learning_rate: current_learning_rate
+            })
+
+            if self.tf_summary_writer:
+                for summary_value in results[1:]:
+                    self.tf_summary_writer.add_summary(summary_value, self.iteration)
+            self.iteration += 1
+
+            num_samples_done += len(batch)
+            percent_done = int(float(num_samples_done) / float(num_samples_done + len(epoch_leftover_documents)) * 100)
+            if percent_done > prev_percent_done:  # - 10
+                # prev_percent_done = int(percent_done / 10) * 10
+                prev_percent_done = percent_done
+                sys.stdout.write("{}% ({}/{}) .. ".format(
+                    prev_percent_done,
+                    num_samples_done,
+                    num_samples_done + len(epoch_leftover_documents)))
+                sys.stdout.flush()
+
+            if not epoch_leftover_documents:
+                self.tf_saver.save(self.session, self.tf_checkpoint_path)
+                epoch_count += 1
+                current_learning_rate *= self.learning_rate_decay
+                print("\nModel saved in file:", self.tf_checkpoint_path)
+                self.store()
+                print("Epoch", epoch_count, "/", self.training_epochs, "complete after",
+                      float(time.time() - start_time)/60.0, "minute(s).")
+                print("------------------------------------------------------")
+
+        print("Optimization Finished!")
+
+    def _finish_init(self):
+        # Create saver only after the graph is initialized
+        self.tf_saver = tf.train.Saver()
+        self.tf_init_op = tf.global_variables_initializer()
+        self.session = tf.Session()
+        self.session.run(self.tf_init_op)
+        print("Compute Graph Initialized.")
+        print(" Trainable Variables:", tf.trainable_variables())
+        if os.path.isfile(self.file):
+            # -- Restore existing model checkpoint
+            self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+            if os.path.isfile(self.tf_checkpoint_path+".index"):
+                print(" Restoring Tensor Flow Session from '{}'.".format(self.tf_checkpoint_path))
+                self.tf_saver.restore(self.session, self.tf_checkpoint_path)
+        else:
+            assert os.path.isdir(self.file)
+            self.file = os.path.join(self.file, self.name() + ".json")
+            self.tf_checkpoint_path = os.path.splitext(self.file)[0]

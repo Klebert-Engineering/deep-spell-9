@@ -6,12 +6,12 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
 from deepspell.grammar import DSGrammar
 from deepspell.corpus import DSCorpus
-from deepspell.predictor import DSLstmPredictor
+from deepspell.extrapolator import DSLstmExtrapolator
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
 training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
 training_grammar = DSGrammar("corpora/grammar.json", training_corpus)
-model = DSLstmPredictor("models/deepspell_lstm_v1_na_lr003_dec70_bat4096.json", "logs")
+model = DSLstmExtrapolator("models/deepspell_lstm_v1_na_lr003_dec70_bat4096.json", "logs")
 
 print("""
 =============================================================
@@ -66,7 +66,7 @@ while True:
     if not prefix_class_names:
         continue
 
-    completion_chars, completion_classes = model.complete(training_corpus, prefix_chars, prefix_class_names, 24)
+    completion_chars, completion_classes = model.extrapolate(training_corpus, prefix_chars, prefix_class_names, 24)
     char_cols = [[] for _ in range(len(completion_chars))]
     class_cols = [[] for _ in range(len(completion_chars))]
     for t in range(len(completion_chars)):
