@@ -94,7 +94,7 @@ class DSCorpus:
                               train_test_split=None,
                               min_num_chars_truncate=-1):
         """
-        Returns a new batch-first character feature matrix like [batch_size][sample_length][char_features].
+        Returns a new batch-first character-feature matrix like [batch_size][sample_length][char_features].
         :param batch_size: The number of sample sequences to return.
         :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.FtsGrammar.
         :param epoch_leftover_indices: The iterator to use for sample selection.
@@ -159,7 +159,6 @@ class DSCorpus:
          features will be set to zero if classes is empty/None.
         """
         assert not classes or len(classes) == len(characters)
-        characters += CHAR_SUBSET[CHAR_SUBSET_EOL]
         result = []
         if not characters[-1] == CHAR_SUBSET[CHAR_SUBSET_EOL]:
             characters += CHAR_SUBSET[CHAR_SUBSET_EOL]

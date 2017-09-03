@@ -72,20 +72,26 @@ while True:
         if not prefix_class_names:
             continue
 
-        completion_chars, completion_classes = extrapolator_model.extrapolate(training_corpus, prefix_chars, prefix_class_names, 24)
+        completion_chars, completion_classes = extrapolator_model.extrapolate(
+            training_corpus,
+            prefix_chars,
+            prefix_class_names, 24)
 
     else:
         completion_classes = discriminator_model.discriminate(training_corpus, user_command)
         completion_chars = []
+
+    def pct_(f):
+        return str(int(f*100.0))
 
     char_cols = [[] for _ in range(len(completion_classes))]
     class_cols = [[] for _ in range(len(completion_classes))]
     for t in range(len(completion_classes)):
         if completion_chars:
             for i in range(3):
-                char_cols[t].append(" {} {}% ".format(completion_chars[t][i][0], str(completion_chars[t][i][1])[2:4]))
+                char_cols[t].append(" {} {}% ".format(completion_chars[t][i][0], pct_(completion_chars[t][i][1])))
         for i in range(3):
-            class_cols[t].append(" {} {}% ".format(completion_classes[t][i][0][:2], str(completion_classes[t][i][1])[2:4]))
+            class_cols[t].append(" {} {}% ".format(completion_classes[t][i][0][:2], pct_(completion_classes[t][i][1])))
     max_col_width = max(len(s) for col in class_cols + char_cols for s in col)
     if completion_chars:
         for line in range(len(char_cols[0])):
