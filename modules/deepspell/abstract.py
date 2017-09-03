@@ -60,15 +60,17 @@ class DSPredictor:
         self.num_logical_features = kwargs_to_update.pop("num_logical_features", 0)
 
         # -- Create basic Tensor Flow nodes
-        self.tf_learning_rate = tf.placeholder(tf.float32)
-        self.tf_lexical_logical_embeddings_per_timestep_per_batch = tf.placeholder(
-            tf.float32,
-            [None, None, self.num_logical_features + self.num_lexical_features])
-        self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape = tf.shape(
-            self.tf_lexical_logical_embeddings_per_timestep_per_batch)
-        self.tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
-        self.tf_saver = None
-        self.session = None
+        self.graph = tf.Graph()
+        with self.graph.as_default():
+            self.session = tf.Session()
+            self.tf_learning_rate = tf.placeholder(tf.float32)
+            self.tf_lexical_logical_embeddings_per_timestep_per_batch = tf.placeholder(
+                tf.float32,
+                [None, None, self.num_logical_features + self.num_lexical_features])
+            self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape = tf.shape(
+                self.tf_lexical_logical_embeddings_per_timestep_per_batch)
+            self.tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
+            self.tf_saver = None
 
     def store(self, file=None):
         """
@@ -145,99 +147,102 @@ class DSPredictor:
 
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
-        assert self.num_lexical_features == training_corpus.total_num_lexical_features_per_character()
-        assert self.num_logical_features == training_corpus.total_num_logical_features_per_character()
-        self.training_history += [training_corpus.name]
-        self.store()
+        assert self.num_lexical_features == training_corpus.num_lexical_features_per_character()
+        assert self.num_logical_features == training_corpus.num_logical_features_per_character()
 
-        print("Training commencing for {}!".format(self.name()))
-        print("------------------------------------------------------")
-        current_learning_rate = self.learning_rate
-        if os.path.isdir(self.log_dir):
-            self.tf_summary_writer = tf.summary.FileWriter(os.path.join(self.log_dir, self.name()))
-            self.tf_summary_writer.add_graph(tf.get_default_graph())
-        else:
-            print("No valid log dir issued. Log will not be written!")
+        with self.graph.as_default():
 
-        ops = [train_op] + summary_ops
-        epoch_leftover_documents = None
-        epoch_count = 0
-        start_time = time.time()
+            self.training_history += [training_corpus.name]
+            self.store()
 
-        # -- Commence training loop
-        num_samples_done = 0
-        prev_percent_done = 0
-        print_iterator_size = False
+            print("Training commencing for {}!".format(self.name()))
+            print("------------------------------------------------------")
+            current_learning_rate = self.learning_rate
+            if os.path.isdir(self.log_dir):
+                self.tf_summary_writer = tf.summary.FileWriter(os.path.join(self.log_dir, self.name()))
+                self.tf_summary_writer.add_graph(self.graph)
+            else:
+                print("No valid log dir issued. Log will not be written!")
 
-        while epoch_count < self.training_epochs:
+            ops = [train_op] + summary_ops
+            epoch_leftover_documents = None
+            epoch_count = 0
+            start_time = time.time()
 
-            if not epoch_leftover_documents:
-                print("New epoch at learning rate {}.".format(current_learning_rate))
-                num_samples_done = 0
-                prev_percent_done = 0
-                print_iterator_size = True
+            # -- Commence training loop
+            num_samples_done = 0
+            prev_percent_done = 0
+            print_iterator_size = False
 
-            batch, lengths, epoch_leftover_documents = training_corpus.get_batch_and_lengths(
-                self.batch_size,
-                sample_grammar,
-                epoch_leftover_documents,
-                train_test_split,
-                min_sample_length_before_truncation)
+            while epoch_count < self.training_epochs:
 
-            if print_iterator_size:
-                sys.stdout.write("Created new randomized collection from {} samples. Now training ...\n  ".format(
-                    len(epoch_leftover_documents) + len(batch)))
-                print_iterator_size = False
+                if not epoch_leftover_documents:
+                    print("New epoch at learning rate {}.".format(current_learning_rate))
+                    num_samples_done = 0
+                    prev_percent_done = 0
+                    print_iterator_size = True
 
-            results = self.session.run(ops, feed_dict={
-                self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
-                self.tf_timesteps_per_batch: lengths,
-                self.tf_learning_rate: current_learning_rate
-            })
+                batch, lengths, epoch_leftover_documents = training_corpus.get_batch_and_lengths(
+                    self.batch_size,
+                    sample_grammar,
+                    epoch_leftover_documents,
+                    train_test_split,
+                    min_sample_length_before_truncation)
 
-            if self.tf_summary_writer:
-                for summary_value in results[1:]:
-                    self.tf_summary_writer.add_summary(summary_value, self.iteration)
-            self.iteration += 1
+                if print_iterator_size:
+                    sys.stdout.write("Created new randomized collection from {} samples. Now training ...\n  ".format(
+                        len(epoch_leftover_documents) + len(batch)))
+                    print_iterator_size = False
 
-            num_samples_done += len(batch)
-            percent_done = int(float(num_samples_done) / float(num_samples_done + len(epoch_leftover_documents)) * 100)
-            if percent_done > prev_percent_done:  # - 10
-                # prev_percent_done = int(percent_done / 10) * 10
-                prev_percent_done = percent_done
-                sys.stdout.write("{}% ({}/{}) .. ".format(
-                    prev_percent_done,
-                    num_samples_done,
-                    num_samples_done + len(epoch_leftover_documents)))
-                sys.stdout.flush()
+                results = self.session.run(ops, feed_dict={
+                    self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
+                    self.tf_timesteps_per_batch: lengths,
+                    self.tf_learning_rate: current_learning_rate
+                })
 
-            if not epoch_leftover_documents:
-                self.tf_saver.save(self.session, self.tf_checkpoint_path)
-                epoch_count += 1
-                current_learning_rate *= self.learning_rate_decay
-                print("\nModel saved in file:", self.tf_checkpoint_path)
-                self.store()
-                print("Epoch", epoch_count, "/", self.training_epochs, "complete after",
-                      float(time.time() - start_time)/60.0, "minute(s).")
-                print("------------------------------------------------------")
+                if self.tf_summary_writer:
+                    for summary_value in results[1:]:
+                        self.tf_summary_writer.add_summary(summary_value, self.iteration)
+                self.iteration += 1
+
+                num_samples_done += len(batch)
+                percent_done = int(float(num_samples_done) / float(num_samples_done + len(epoch_leftover_documents)) * 100)
+                if percent_done > prev_percent_done:  # - 10
+                    # prev_percent_done = int(percent_done / 10) * 10
+                    prev_percent_done = percent_done
+                    sys.stdout.write("{}% ({}/{}) .. ".format(
+                        prev_percent_done,
+                        num_samples_done,
+                        num_samples_done + len(epoch_leftover_documents)))
+                    sys.stdout.flush()
+
+                if not epoch_leftover_documents:
+                    self.tf_saver.save(self.session, self.tf_checkpoint_path)
+                    epoch_count += 1
+                    current_learning_rate *= self.learning_rate_decay
+                    print("\nModel saved in file:", self.tf_checkpoint_path)
+                    self.store()
+                    print("Epoch", epoch_count, "/", self.training_epochs, "complete after",
+                          float(time.time() - start_time)/60.0, "minute(s).")
+                    print("------------------------------------------------------")
 
         print("Optimization Finished!")
 
     def _finish_init(self):
         # Create saver only after the graph is initialized
-        self.tf_saver = tf.train.Saver()
-        self.tf_init_op = tf.global_variables_initializer()
-        self.session = tf.Session()
-        self.session.run(self.tf_init_op)
-        print("Compute Graph Initialized.")
-        print(" Trainable Variables:", tf.trainable_variables())
-        if os.path.isfile(self.file):
-            # -- Restore existing model checkpoint
-            self.tf_checkpoint_path = os.path.splitext(self.file)[0]
-            if os.path.isfile(self.tf_checkpoint_path+".index"):
-                print(" Restoring Tensor Flow Session from '{}'.".format(self.tf_checkpoint_path))
-                self.tf_saver.restore(self.session, self.tf_checkpoint_path)
-        else:
-            assert os.path.isdir(self.file)
-            self.file = os.path.join(self.file, self.name() + ".json")
-            self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+        with self.graph.as_default():
+            self.tf_saver = tf.train.Saver()
+            self.tf_init_op = tf.global_variables_initializer()
+            self.session.run(self.tf_init_op)
+            print("Compute Graph Initialized.")
+            print(" Trainable Variables:", tf.trainable_variables())
+            if os.path.isfile(self.file):
+                # -- Restore existing model checkpoint
+                self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+                if os.path.isfile(self.tf_checkpoint_path+".index"):
+                    print(" Restoring Tensor Flow Session from '{}'.".format(self.tf_checkpoint_path))
+                    self.tf_saver.restore(self.session, self.tf_checkpoint_path)
+            else:
+                assert os.path.isdir(self.file)
+                self.file = os.path.join(self.file, self.name() + ".json")
+                self.tf_checkpoint_path = os.path.splitext(self.file)[0]

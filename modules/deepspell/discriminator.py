@@ -3,10 +3,12 @@
 # ===============================[ Imports ]=============================
 
 import tensorflow as tf
+import numpy as np
 
 # ============================[ Local Imports ]==========================
 
 from . import abstract
+from . import corpus
 
 
 # ======================[ LSTM Discriminator Model ]=====================
@@ -27,9 +29,10 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         self.min_sample_length_before_truncation = kwargs.pop("min_sample_length_before_truncation", 5)
 
         # -- Create Tensor Flow compute graph nodes
-        self.tf_logical_predictions_per_timestep_per_batch = self._discriminator()
-        (self.tf_discriminator_train_op,
-         self.tf_discriminator_logical_loss_summary) = self._discriminator_optimizer()
+        with self.graph.as_default():
+            self.tf_logical_predictions_per_timestep_per_batch = self._discriminator()
+            (self.tf_discriminator_train_op,
+             self.tf_discriminator_logical_loss_summary) = self._discriminator_optimizer()
         self._finish_init()
 
     def train(self, training_corpus, sample_grammar, train_test_split=None):
@@ -50,8 +53,60 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         result["bw_state_size_per_layer"] = self.bw_state_size_per_layer
         return result
 
-    def discriminate(self, characters):
-        pass
+    def discriminate(self, embedding_corpus, characters):
+        """
+        Use this method to predict the token classes for a given sequence of characters.
+        :param embedding_corpus: This corpus indicates the set of tokens that may be predicted, as well
+         as the (char, embedding) mappings and terminal token classes.
+         It is important that the lexical/logical feature split of the given corpus matches exactly
+         self.num_logical_features and self.num_lexical_features.
+        :param characters: The characters whose classes should be predicted.
+        :return: character_classes as per-timestep list of list of pairs like (class, probability),
+         where len(character_classes) = len(characters) if characters ends in the corpus' EOL char,
+         or len(character_classes) = len(characters) + 1 otherwise.
+         E.g. if characters="xy", classes={0,1,2}, a prediction may look like:
+
+         [ [(0, .7),  [(2, .5)   
+            (2, .2),   (0, .4)   
+            (1, .1)],  (1, .1)] ]
+        """
+        assert isinstance(embedding_corpus, corpus.DSCorpus)
+        assert self.num_lexical_features == embedding_corpus.num_lexical_features_per_character()
+        assert self.num_logical_features == embedding_corpus.num_logical_features_per_character()
+
+        # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
+        char_embeddings = embedding_corpus.embed_characters(characters)
+        char_embeddings = np.reshape(
+            char_embeddings,
+            newshape=(1, len(char_embeddings), self.num_lexical_features+self.num_logical_features))
+
+        with self.graph.as_default():
+            discriminator_output = self.session.run(self.tf_logical_predictions_per_timestep_per_batch, feed_dict={
+                self.tf_lexical_logical_embeddings_per_timestep_per_batch: char_embeddings,
+                self.tf_timesteps_per_batch: np.asarray([len(characters)])
+            })
+
+        # -- Reshape 3D batch-timestep-features matrix back to 2D timestep-features matrix
+        discriminator_output = np.reshape(
+            discriminator_output,
+            (len(char_embeddings[0]), self.num_logical_features))
+
+        # -- Apply softmax to output
+        discriminator_output = np.exp(discriminator_output)
+        discriminator_output /= np.reshape(np.sum(discriminator_output, axis=1), (len(discriminator_output), 1))
+
+        # -- Sort output and translate classes to strings for convenience
+        completion_classes = []
+        for prediction in discriminator_output:
+            logical_pd = sorted((  # sort class predictions by probability in descending order
+                    (embedding_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    for i, p in enumerate(prediction)
+                ),
+                key=lambda entry: entry[1],
+                reverse=True)
+            completion_classes.append(logical_pd)
+
+        return completion_classes
 
     # ----------------------[ Private Methods ]----------------------
 
