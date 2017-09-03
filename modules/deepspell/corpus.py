@@ -6,6 +6,7 @@ import codecs
 from collections import defaultdict
 import random
 import numpy as np
+import math
 
 # ==========================[ Local Imports ]========================
 
@@ -77,13 +78,13 @@ class DSCorpus:
         self.eol_class_id = self.class_ids["EOL"]
 
     def total_num_features_per_character(self):
-        return self.total_num_lexical_features_per_character() + self.total_num_logical_features_per_character()
+        return self.num_lexical_features_per_character() + self.num_logical_features_per_character()
 
     @staticmethod
-    def total_num_lexical_features_per_character():
+    def num_lexical_features_per_character():
         return len(CHAR_SUBSET)
 
-    def total_num_logical_features_per_character(self):
+    def num_logical_features_per_character(self):
         return len(self.class_ids)
 
     def get_batch_and_lengths(self,
@@ -93,7 +94,7 @@ class DSCorpus:
                               train_test_split=None,
                               min_num_chars_truncate=-1):
         """
-        Returns a new batch-first character feature matrix like [batch_size][sample_length][char_features].
+        Returns a new batch-first character-feature matrix like [batch_size][sample_length][char_features].
         :param batch_size: The number of sample sequences to return.
         :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.FtsGrammar.
         :param epoch_leftover_indices: The iterator to use for sample selection.
@@ -146,24 +147,32 @@ class DSCorpus:
         assert len(result) <= 1
         return result[0] if result else None
 
-    def embed_prefix(self, prefix_chars, prefix_classes):
+    def embed_characters(self, characters, classes=None):
         """
-        Embeds a single prefix char-class combo into a 2D-matrix with shape
-        (len(prefix_chars), self.total_num_features_per_character()).
-        :param prefix_chars: Arbitrary string.
-        :param prefix_classes: List of terminal token class names. Must be of length len(prefix_chars).
-        :return: The embedded feature matrix.
+        Embeds a character sequence with an optional class annotation into a 2D-matrix.
+        :param characters: Arbitrary string. If it does not end in the EOL-character '$',
+         the EOL-character will be appended automatically.
+        :param classes: Optional list of terminal token class names. Must be empty or iterable
+         of length len(prefix_chars). If empty, no class features will be written into the result matrix.
+        :return: The embedded feature matrix with shape
+         (len(characters), self.total_num_features_per_character()). Note, that all logical
+         features will be set to zero if classes is empty/None.
         """
-        assert len(prefix_chars) == len(prefix_classes)
+        assert not classes or len(classes) == len(characters)
         result = []
-        for i, char in enumerate(prefix_chars):
-            class_id = self.class_ids[prefix_classes[i]]
+        if not characters[-1] == CHAR_SUBSET[CHAR_SUBSET_EOL]:
+            characters += CHAR_SUBSET[CHAR_SUBSET_EOL]
+            if classes:
+                classes += [self.eol_class_id]
+        for i, char in enumerate(characters):
             char_id = CHAR_SUBSET_INDEX[char]
             char_embedding = np.zeros(self.total_num_features_per_character())
             # Set character label
             char_embedding[char_id] = 1.
             # Set class label
-            char_embedding[self.total_num_lexical_features_per_character() + class_id] = 1.
+            if classes:
+                class_id = self.class_ids[classes[i]]
+                char_embedding[self.num_lexical_features_per_character() + class_id] = 1.
             result.append(char_embedding)
         return np.asarray(result, np.float32)
 
@@ -181,16 +190,17 @@ class DSCorpus:
             for char in (" " if i > 0 else "")+token.string]
 
         if len(char_class_seq) > min_chars_truncate and min_chars_truncate >= 0:
-            truncation_point = (int(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate)) +
+            truncation_point = (math.ceil(int(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate))) +
                                 min_chars_truncate)
             char_class_seq = char_class_seq[:truncation_point]
+
         for char, token_class in char_class_seq:
             # Iterate over all tokens. Prepend whitespace if necessary.
             char_embedding = np.zeros(self.total_num_features_per_character())
             # Set character label
             char_embedding[CHAR_SUBSET_INDEX[char]] = 1.
             # Set class label
-            char_embedding[self.total_num_lexical_features_per_character() + token_class] = 1.
+            char_embedding[self.num_lexical_features_per_character() + token_class] = 1.
             result.append(char_embedding)
 
         # Align output length by padding with EOL chars
@@ -198,7 +208,7 @@ class DSCorpus:
         while len(result) < length_to_align:
             char_embedding = np.zeros(self.total_num_features_per_character())
             char_embedding[CHAR_SUBSET_EOL] = 1.
-            char_embedding[self.total_num_lexical_features_per_character() + self.eol_class_id] = 1.
+            char_embedding[self.num_lexical_features_per_character() + self.eol_class_id] = 1.
             result.append(char_embedding)
         return np.asarray(result, np.float32)
 

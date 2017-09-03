@@ -18,22 +18,20 @@ class DSLstmExtrapolator(abstract.DSPredictor):
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, file_or_folder, log_dir="", **kwargs):
-        """Documentation in base Model class
-        :param total_features_per_character: The exact number of features per character,
-         which is required for the Graph construction.
-        """
+        """Documentation in base Model class"""
         super().__init__("extrapolator", 1, file_or_folder, log_dir, kwargs)
         # -- Read params
         self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
         # -- Create Tensor Flow compute graph nodes
-        (self.tf_extrapolator_cell,
-         self.tf_lexical_logical_predictions_per_timestep_per_batch,
-         self.tf_extrapolator_final_state_and_mem_stack) = self._extrapolator()
-        (self.tf_maximum_stepwise_extrapolation_length,
-         self.tf_stepwise_extrapolator_output) = self._stepwise_extrapolator()
-        (self.tf_extrapolator_train_op,
-         self.tf_extrapolator_logical_loss_summary,
-         self.tf_extrapolator_lexical_loss_summary) = self._extrapolator_optimizer()
+        with self.graph.as_default():
+            (self.tf_extrapolator_cell,
+             self.tf_lexical_logical_predictions_per_timestep_per_batch,
+             self.tf_extrapolator_final_state_and_mem_stack) = self._extrapolator()
+            (self.tf_maximum_stepwise_extrapolation_length,
+             self.tf_stepwise_extrapolator_output) = self._stepwise_extrapolator()
+            (self.tf_extrapolator_train_op,
+             self.tf_extrapolator_logical_loss_summary,
+             self.tf_extrapolator_lexical_loss_summary) = self._extrapolator_optimizer()
         self._finish_init()
 
     def train(self, training_corpus, sample_grammar, train_test_split=None):
@@ -74,18 +72,20 @@ class DSLstmExtrapolator(abstract.DSPredictor):
         """
         assert isinstance(completion_corpus, corpus.DSCorpus)
         assert len(prefix_chars) == len(prefix_classes)
-        assert self.num_lexical_features == completion_corpus.total_num_lexical_features_per_character()
-        assert self.num_logical_features == completion_corpus.total_num_logical_features_per_character()
+        assert self.num_lexical_features == completion_corpus.num_lexical_features_per_character()
+        assert self.num_logical_features == completion_corpus.num_logical_features_per_character()
 
+        # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
         embedded_prefix = np.reshape(
-            completion_corpus.embed_prefix(prefix_chars, prefix_classes),
+            completion_corpus.embed_characters(prefix_chars, prefix_classes),
             newshape=(1, len(prefix_chars), self.num_logical_features + self.num_lexical_features))
 
-        stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
-            self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
-            self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
-            self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
-        })
+        with self.graph.as_default():
+            stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
+                self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
+                self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
+                self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
+            })
         assert len(stepwise_extrapolator_output) == num_chars_to_predict
 
         completion_chars = []

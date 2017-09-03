@@ -1,0 +1,19 @@
+{
+  "batch_size": 3072,
+  "bw_state_size_per_layer": [
+    128
+  ],
+  "fw_state_size_per_layer": [
+    128,
+    128
+  ],
+  "iteration": 11707,
+  "learning_rate": 0.003,
+  "learning_rate_decay": 0.5,
+  "num_lexical_features": 69,
+  "num_logical_features": 6,
+  "training_epochs": 10,
+  "training_history": [
+    "na"
+  ]
+}
