@@ -21,7 +21,13 @@ class DSLstmDiscriminator(predictor.DSPredictor):
         :param total_features_per_character: The exact number of features per character,
          which is required for the Graph construction.
         """
-        super().__init__("discriminator", 1, file_or_folder, log_dir, kwargs)
+        super().__init__(
+            name_scope="discriminator",
+            version=2,
+            file_or_folder=file_or_folder,
+            log_dir=log_dir,
+            kwargs_to_update=kwargs)
+
         # -- Read params
         self.fw_state_size_per_layer = kwargs.pop("fw_state_size_per_layer", [128, 128])
         self.bw_state_size_per_layer = kwargs.pop("bw_state_size_per_layer", [128, 128])

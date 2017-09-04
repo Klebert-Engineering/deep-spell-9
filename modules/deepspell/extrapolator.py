@@ -19,7 +19,13 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
     def __init__(self, file_or_folder, log_dir="", **kwargs):
         """Documentation in base Model class"""
-        super().__init__("extrapolator", 1, file_or_folder, log_dir, kwargs)
+        super().__init__(
+            name_scope="extrapolator",
+            version=2,
+            file_or_folder=file_or_folder,
+            log_dir=log_dir,
+            kwargs_to_update=kwargs)
+
         # -- Read params
         self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
         # -- Create Tensor Flow compute graph nodes
@@ -76,14 +82,16 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         assert self.num_logical_features == completion_corpus.num_logical_features_per_character()
 
         # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
+        embedded_prefix = completion_corpus.embed_characters(prefix_chars, prefix_classes)
+        embedded_prefix_length = len(embedded_prefix)
         embedded_prefix = np.reshape(
-            completion_corpus.embed_characters(prefix_chars, prefix_classes),
-            newshape=(1, len(prefix_chars), self.num_logical_features + self.num_lexical_features))
+            embedded_prefix,
+            newshape=(1, embedded_prefix_length, self.num_logical_features + self.num_lexical_features))
 
         with self.graph.as_default():
             stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
                 self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
-                self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
+                self.tf_timesteps_per_batch: np.asarray([embedded_prefix_length]),
                 self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
             })
         assert len(stepwise_extrapolator_output) == num_chars_to_predict
@@ -162,7 +170,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
                 one_hot_output = tf.reshape(tf.concat([
                         tf.one_hot(
                             tf.argmax(prev_output[:, :self.num_lexical_features], axis=1),
-                            depth=self.num_logical_features),
+                            depth=self.num_lexical_features),
                         tf.one_hot(
                             tf.argmax(prev_output[:, -self.num_logical_features:], axis=1),
                             depth=self.num_logical_features),

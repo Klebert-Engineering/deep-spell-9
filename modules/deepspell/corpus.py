@@ -125,15 +125,13 @@ class DSCorpus:
             sample_grammar.random_phrase_with_token(self.data[token_id[0]][token_id[1]])
             for token_id in batch_token_indices]
         # Find the longest phrase, such that all lines in the output matrix can be length-aligned
-        max_phrase_length = max(
+        batch_lengths = np.asarray([
             self._token_sequence_length(phrase_tokens)
-            for phrase_tokens in batch_phrases)
+            for phrase_tokens in batch_phrases])
+        max_phrase_length = max(batch_lengths)
         batch_embedding_sequences = np.asarray([
             self._embed(phrase_tokens, max_phrase_length, min_num_chars_truncate)
             for phrase_tokens in batch_phrases], np.float32)
-        batch_lengths = np.asarray([
-            len(batch_embedding_sequence)
-            for batch_embedding_sequence in batch_embedding_sequences])
         return batch_embedding_sequences, batch_lengths, epoch_leftover_indices
 
     def class_name_for_id(self, id):
@@ -163,7 +161,7 @@ class DSCorpus:
         if not characters[-1] == CHAR_SUBSET[CHAR_SUBSET_EOL]:
             characters += CHAR_SUBSET[CHAR_SUBSET_EOL]
             if classes:
-                classes += [self.eol_class_id]
+                classes += ["EOL"]
         for i, char in enumerate(characters):
             char_id = CHAR_SUBSET_INDEX[char]
             char_embedding = np.zeros(self.total_num_features_per_character())
@@ -190,7 +188,7 @@ class DSCorpus:
             for char in (" " if i > 0 else "")+token.string]
 
         if len(char_class_seq) > min_chars_truncate and min_chars_truncate >= 0:
-            truncation_point = (math.ceil(int(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate))) +
+            truncation_point = (math.ceil(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate)) +
                                 min_chars_truncate)
             char_class_seq = char_class_seq[:truncation_point]
 
