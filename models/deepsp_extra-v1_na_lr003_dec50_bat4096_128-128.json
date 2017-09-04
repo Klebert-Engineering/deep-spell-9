@@ -3,8 +3,6 @@
   "iteration": 7023,
   "learning_rate": 0.003,
   "learning_rate_decay": 0.5,
-  "num_lexical_features": 69,
-  "num_logical_features": 6,
   "state_size_per_layer": [
     128,
     128
@@ -12,5 +10,19 @@
   "training_epochs": 5,
   "training_history": [
     "na"
-  ]
+  ],
+  "features": {
+    "charset": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-., /_$",
+    "classes": {
+      "CITY": 0,
+      "STATE": 1,
+      "COUNTRY": 2,
+      "ROAD": 3,
+      "ZIP": 4,
+      "EOL": 5
+    },
+    "eol_char": "$",
+    "unk_char": "_",
+    "eol_class_name": "EOL"
+  }
 }

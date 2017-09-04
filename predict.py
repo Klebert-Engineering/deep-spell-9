@@ -8,10 +8,10 @@ from deepspell.corpus import DSCorpus
 from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
 
-# training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
-training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
 extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
 discriminator_model = DSLstmDiscriminator("models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json", "logs")
+assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
+featureset = extrapolator_model.featureset
 
 print("""
 =============================================================
@@ -37,7 +37,7 @@ Usage:
 Have fun!
 
 """.format(
-    "\n".join("    {}: {}".format(class_name, class_id) for class_name, class_id in training_corpus.class_ids.items())
+    "\n".join("    {}: {}".format(class_name, class_id) for class_name, class_id in featureset.class_ids.items())
 ))
 
 while True:
@@ -59,7 +59,7 @@ while True:
 
         prefix_class_names = []
         for cl in prefix_classes:
-            cl_name = training_corpus.class_name_for_id(int(cl))
+            cl_name = featureset.class_name_for_id(int(cl))
             if cl_name:
                 prefix_class_names.append(cl_name)
             else:
@@ -71,12 +71,12 @@ while True:
             continue
 
         completion_chars, completion_classes = extrapolator_model.extrapolate(
-            training_corpus,
+            featureset,
             prefix_chars,
             prefix_class_names, 24)
 
     else:
-        completion_classes = discriminator_model.discriminate(training_corpus, user_command)
+        completion_classes = discriminator_model.discriminate(featureset, user_command)
         completion_chars = []
 
     def pct_(f):
