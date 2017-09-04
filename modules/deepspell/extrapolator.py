@@ -9,7 +9,7 @@ import numpy as np
 
 from . import predictor
 from . import corpus
-
+from . import featureset
 
 # =======================[ LSTM Extrapolator Model ]=====================
 
@@ -54,11 +54,11 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         result["state_size_per_layer"] = self.state_size_per_layer
         return result
 
-    def extrapolate(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+    def extrapolate(self, embedding_featureset, prefix_chars, prefix_classes, num_chars_to_predict):
         """
         Use this method to predict a postfix for the given prefix with this model.
         :param num_chars_to_predict: The number of characters to predict.
-        :param completion_corpus: This corpus indicates the set of tokens that may be predicted, as well
+        :param embedding_featureset: This corpus indicates the set of tokens that may be predicted, as well
          as the (char, embedding) mappings and terminal token classes.
         :param prefix_chars: The actual characters of the prefix to be completed.
         :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
@@ -76,13 +76,13 @@ class DSLstmExtrapolator(predictor.DSPredictor):
               (b, .2),   (c, .4)       (0, .3),   (1, .1)
               (c, .1)],  (a, .1)] ],   (2, .3)],  (0, .0)] ] )
         """
-        assert isinstance(completion_corpus, corpus.DSCorpus)
+        assert isinstance(embedding_featureset, featureset.DSFeatureSet)
         assert len(prefix_chars) == len(prefix_classes)
-        assert self.num_lexical_features == completion_corpus.num_lexical_features_per_character()
-        assert self.num_logical_features == completion_corpus.num_logical_features_per_character()
+        assert self.num_lexical_features == embedding_featureset.num_lexical_features()
+        assert self.num_logical_features == embedding_featureset.num_logical_features()
 
         # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
-        embedded_prefix = completion_corpus.embed_characters(prefix_chars, prefix_classes)
+        embedded_prefix = embedding_featureset.embed_characters(prefix_chars, prefix_classes)
         embedded_prefix_length = len(embedded_prefix)
         embedded_prefix = np.reshape(
             embedded_prefix,
@@ -101,13 +101,13 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
         for prediction in stepwise_extrapolator_output:
             lexical_pd = sorted((  # sort char predictions by probability in descending order
-                    (corpus.CHAR_SUBSET[i], p)
+                    (embedding_featureset.charset[i], p)
                     for i, p in enumerate(prediction[:self.num_lexical_features])
                 ),
                 key=lambda entry: entry[1],
                 reverse=True)
             logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (completion_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
                     for i, p in enumerate(prediction[-self.num_logical_features:])
                 ),
                 key=lambda entry: entry[1],

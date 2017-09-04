@@ -12,6 +12,7 @@ import time
 
 from . import corpus
 from . import grammar
+from . import featureset
 
 # ====================[ Abstract Predictor Interface ]===================
 
@@ -56,8 +57,15 @@ class DSPredictor:
         self.learning_rate_decay = kwargs_to_update.pop("learning_rate_decay", 0.7)
         self.training_epochs = kwargs_to_update.pop("training_epochs", 10)
         self.training_history = kwargs_to_update.pop("training_history", [])
-        self.num_lexical_features = kwargs_to_update.pop("num_lexical_features", 0)
-        self.num_logical_features = kwargs_to_update.pop("num_logical_features", 0)
+        featureset_params = kwargs_to_update.pop("features", None)
+        if isinstance(featureset_params, dict):
+            self.featureset = featureset.DSFeatureSet(**featureset_params)
+        elif isinstance(featureset_params, featureset.DSFeatureSet):
+            self.featureset = featureset_params
+        else:
+            self.featureset = featureset.DSFeatureSet()
+        self.num_logical_features = self.featureset.num_logical_features()
+        self.num_lexical_features = self.featureset.num_lexical_features()
 
         # -- Create basic Tensor Flow nodes
         self.graph = tf.Graph()
@@ -131,8 +139,7 @@ class DSPredictor:
             "batch_size": self.batch_size,
             "training_history": self.training_history,
             "iteration": self.iteration,
-            "num_lexical_features": self.num_lexical_features,
-            "num_logical_features": self.num_logical_features
+            "features": self.featureset.as_dict()
         }
 
     # ----------------------[ Private Methods ]----------------------
@@ -147,8 +154,7 @@ class DSPredictor:
 
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
-        assert self.num_lexical_features == training_corpus.num_lexical_features_per_character()
-        assert self.num_logical_features == training_corpus.num_logical_features_per_character()
+        self.featureset.adapt_logical_features(training_corpus.featureset)
 
         with self.graph.as_default():
 
@@ -178,7 +184,6 @@ class DSPredictor:
                 if not epoch_leftover_documents:
                     print("New epoch at learning rate {}.".format(current_learning_rate))
                     num_samples_done = 0
-                    prev_percent_done = 0
                     print_iterator_size = True
 
                 batch, lengths, epoch_leftover_documents = training_corpus.get_batch_and_lengths(

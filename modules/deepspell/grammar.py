@@ -7,6 +7,10 @@ from unidecode import unidecode
 import random
 import json
 
+# ==========================[ Local Imports ]========================
+
+from . import featureset
+
 # ============================[ Constants ]==========================
 
 """
@@ -14,8 +18,8 @@ This token may be used in a corpus tsv file to indicate the absence of a value.
 """
 WILDCARD_TOKEN = "*"
 
-# ============================[ FtsToken ]==========================
 
+# ============================[ FtsToken ]==========================
 
 class DSToken:
     """
@@ -23,38 +27,23 @@ class DSToken:
     that may occur in a Full-Text-Search (FTS) query.
     """
 
-    # ------------------------[ Properties ]------------------------
-
-    """
-    This is the tokens global id:
-    * The first entry is the numeric id of the tokens class as determined by FtsCorpus.
-    * The second entry is the local id of the token within the class.
-    """
-    id = (0, 0)
-
-    """
-    The actual string of the token
-    """
-    string = ""
-
-    """
-    The parent token. In the first phase of loading, this may be an id tuple like @id.
-    In the second phase, this id will be converted to the actual parent, or None, if
-    no valid parent is indicated.
-    """
-    parent = None
-
-    """
-    List of FtsTokens which are logically depending on this token as their parent.
-    """
-    children = []
-
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, class_id, token_id, parent_id_tuple, token_str):
+        # This is the tokens global id:
+        # * The first entry is the numeric id of the tokens class as determined by FtsCorpus.
+        # * The second entry is the local id of the token within the class.
         self.id = (class_id, token_id)
+
+        # The actual string of the token
         self.string = unidecode(token_str)
+
+        # The parent token. In the first phase of loading, this may be an id tuple like @id.
+        # In the second phase, this id will be converted to the actual parent, or None, if
+        # no valid parent is indicated.
         self.parent = parent_id_tuple
+
+        # List of FtsTokens which are logically depending on this token as their parent.
         self.children = []
 
     def recursive_parents(self, result=None):
@@ -98,17 +87,18 @@ class DSGrammarRandomSequenceRule:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, json_symbols, terminal_corpus, known_rules):
+    def __init__(self, json_symbols, terminal_featureset, known_rules):
         self.symbols = []
         assert isinstance(json_symbols, list)
+        assert isinstance(terminal_featureset, featureset.DSFeatureSet)
         for json_symbol in json_symbols:
             rule_class_name = json_symbol[DSGrammar.RULE_CLASS]
             rule_prob = json_symbol[DSGrammar.RULE_PROBABILITY]
             rule = None
             if rule_class_name in known_rules:
                 rule = known_rules[rule_class_name]
-            elif rule_class_name in terminal_corpus.class_ids:
-                rule = terminal_corpus.class_ids[rule_class_name]
+            elif rule_class_name in terminal_featureset.class_ids:
+                rule = terminal_featureset.class_ids[rule_class_name]
             else:
                 print("  ERROR: Failed to resolve reference to nonterminal class '{}'!".format(rule_class_name))
             if rule or isinstance(rule, int):
@@ -167,16 +157,17 @@ class DSGrammar:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, path, terminal_corpus):
+    def __init__(self, path, terminal_featureset):
         """
         Create a new FTS grammar from a JSON definition file.
         :param path: Path of the JSON-file which holds the grammar.
-        :param terminal_corpus: FtsCorpus which provides the terminal symbols for the grammar.
+        :param terminal_featureset: FtsCorpus which provides the terminal symbols for the grammar.
         """
+        assert isinstance(terminal_featureset, featureset.DSFeatureSet)
         with codecs.open(path) as json_grammar_file:
             print("Loading {} ...".format(path))
             json_grammar = json.load(json_grammar_file)
-        self.terminal_classes = terminal_corpus.class_ids
+        self.terminal_classes = terminal_featureset.class_ids
         self.root_nonterminal = json_grammar[DSGrammar.ROOT_SYMBOL]
         self.nonterminal_rules = dict()
         for json_rule in json_grammar[DSGrammar.RULES]:
@@ -187,7 +178,7 @@ class DSGrammar:
             if new_rule_type == DSGrammar.RULE_RANDOM_SEQUENCE_TYPE:
                 new_rule = DSGrammarRandomSequenceRule(
                     json_rule[DSGrammar.RULE_SYMBOLS],
-                    terminal_corpus,
+                    terminal_featureset,
                     self.nonterminal_rules)
             else:
                 print("  Unsupported rule type '{}'!".format(new_rule_type))
