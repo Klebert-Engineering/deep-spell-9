@@ -1,0 +1,31 @@
+{
+  "port": 5000,
+  "host": "0.0.0.0",
+  "__comment__": [
+    "Use `models` to specify the models that should be served by the ranking service:",
+    "Every model should contain the following properties:",
+    "   `type` may be:",
+    "    * avg-emb for the AverageEmbeddingModel baseline",
+    "    * lstm for the LstmEncoderDecoder model",
+    "   `path` may be any path pointing to a valid model file, e.g.:",
+    "    * ../models/LSTM-AEV3-LR003DE90-BAT64-EMB256C-DROP10.json",
+    "    => note: this is not required for avg-emb.",
+
+    "Use `corpus` to specify the NDS FTS corpus that should be served by the deepspell daemon:",
+    "This may be any path pointing to a valid corpus file, e.g.:",
+    "  * ../corpora/deepspell_data_north_america_v2.tsv",
+    "  * ../corpora/deepspell_minimal.tsv",
+
+    "Use `discriminator` to specify the token category discrimination model:",
+    "This may be any path pointing to a valid deepspell.DSLstmDiscriminator model, e.g.:",
+    "  * ../models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json",
+
+    "Use `extrapolator` to specify the auto-completion model:",
+    "This may be any path pointing to a valid deepspell.DSLstmExtrapolator model, e.g.:",
+    "  * ../models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json",
+    "  * ../models/deepsp_extra-v1_na_lr003_dec70_bat4096_128-128.json"
+  ],
+  "discriminator": "../models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json",
+  "extrapolator": "../models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json",
+  "corpus": "../corpora/deepspell_data_north_america_v2.tsv"
+}

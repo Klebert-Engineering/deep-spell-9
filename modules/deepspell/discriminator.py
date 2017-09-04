@@ -7,13 +7,13 @@ import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from . import abstract
+from . import predictor
 from . import corpus
 
 
 # ======================[ LSTM Discriminator Model ]=====================
 
-class DSLstmDiscriminator(abstract.DSPredictor):
+class DSLstmDiscriminator(predictor.DSPredictor):
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, file_or_folder, log_dir="", **kwargs):
@@ -100,7 +100,7 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         completion_classes = []
         for prediction in discriminator_output:
             logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (embedding_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    (embedding_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), float(p))
                     for i, p in enumerate(prediction)
                 ),
                 key=lambda entry: entry[1],

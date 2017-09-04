@@ -51,7 +51,7 @@ class DSPredictor:
         elif file_or_folder:
             assert os.path.isdir(file_or_folder)
         self.batch_size = kwargs_to_update.pop("batch_size", 4096)
-        self.iteration = kwargs_to_update.pop("iteration", 2341)
+        self.iteration = kwargs_to_update.pop("iteration", 0)
         self.learning_rate = kwargs_to_update.pop("learning_rate", 0.003)
         self.learning_rate_decay = kwargs_to_update.pop("learning_rate_decay", 0.7)
         self.training_epochs = kwargs_to_update.pop("training_epochs", 10)
@@ -171,7 +171,6 @@ class DSPredictor:
 
             # -- Commence training loop
             num_samples_done = 0
-            prev_percent_done = 0
             print_iterator_size = False
 
             while epoch_count < self.training_epochs:
@@ -206,15 +205,7 @@ class DSPredictor:
                 self.iteration += 1
 
                 num_samples_done += len(batch)
-                percent_done = int(float(num_samples_done) / float(num_samples_done + len(epoch_leftover_documents)) * 100)
-                if percent_done > prev_percent_done:  # - 10
-                    # prev_percent_done = int(percent_done / 10) * 10
-                    prev_percent_done = percent_done
-                    sys.stdout.write("{}% ({}/{}) .. ".format(
-                        prev_percent_done,
-                        num_samples_done,
-                        num_samples_done + len(epoch_leftover_documents)))
-                    sys.stdout.flush()
+                self._print_progress(num_samples_done, num_samples_done + len(epoch_leftover_documents))
 
                 if not epoch_leftover_documents:
                     self.tf_saver.save(self.session, self.tf_checkpoint_path)
@@ -246,3 +237,29 @@ class DSPredictor:
                 assert os.path.isdir(self.file)
                 self.file = os.path.join(self.file, self.name() + ".json")
                 self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+
+    # -*- coding: utf-8 -*-
+
+    @staticmethod
+    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+        """
+        Call in a loop to create terminal progress bar
+        @params:
+            iteration   - Required  : current iteration (Int)
+            total       - Required  : total iterations (Int)
+            prefix      - Optional  : prefix string (Str)
+            suffix      - Optional  : suffix string (Str)
+            decimals    - Optional  : positive number of decimals in percent complete (Int)
+            bar_length  - Optional  : character length of bar (Int)
+        """
+        str_format = "{0:." + str(decimals) + "f}"
+        percents = str_format.format(100 * (iteration / float(total)))
+        filled_length = int(round(bar_length * iteration / float(total)))
+        bar = '#' * filled_length + '-' * (bar_length - filled_length)
+
+        sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
+
+        if iteration == total:
+            sys.stdout.write('\n')
+
+        sys.stdout.flush()

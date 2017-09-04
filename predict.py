@@ -4,15 +4,13 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
-from deepspell.grammar import DSGrammar
 from deepspell.corpus import DSCorpus
 from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
 training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
-training_grammar = DSGrammar("corpora/grammar.json", training_corpus)
-extrapolator_model = DSLstmExtrapolator("models/deepspell_lstm_v1_na_lr003_dec70_bat4096.json", "logs")
+extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
 discriminator_model = DSLstmDiscriminator("models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json", "logs")
 
 print("""

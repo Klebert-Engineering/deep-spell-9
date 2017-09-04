@@ -7,13 +7,13 @@ import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from . import abstract
+from . import predictor
 from . import corpus
 
 
 # =======================[ LSTM Extrapolator Model ]=====================
 
-class DSLstmExtrapolator(abstract.DSPredictor):
+class DSLstmExtrapolator(predictor.DSPredictor):
 
     # ---------------------[ Interface Methods ]---------------------
 

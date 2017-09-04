@@ -1,0 +1,16 @@
+{
+  "batch_size": 4096,
+  "iteration": 7023,
+  "learning_rate": 0.003,
+  "learning_rate_decay": 0.5,
+  "num_lexical_features": 69,
+  "num_logical_features": 6,
+  "state_size_per_layer": [
+    128,
+    128
+  ],
+  "training_epochs": 5,
+  "training_history": [
+    "na"
+  ]
+}
