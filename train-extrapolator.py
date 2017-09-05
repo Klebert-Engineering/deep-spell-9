@@ -16,7 +16,7 @@ model = DSLstmExtrapolator(
     features=training_corpus.featureset,
     learning_rate=0.003,
     learning_rate_decay=0.5,
-    training_epochs=3,
+    training_epochs=5,
     batch_size=2048,
     state_size_per_layer=(256, 256))
 

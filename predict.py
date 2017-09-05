@@ -8,8 +8,8 @@ from deepspell.corpus import DSCorpus
 from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
 
-extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
-# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat4096_128-128.json", "logs")
+extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json", "logs")
+# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
 # extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat3072_128-128-128.json", "logs")
 discriminator_model = DSLstmDiscriminator("models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json", "logs")
 assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)

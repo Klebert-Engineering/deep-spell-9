@@ -151,9 +151,29 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         with tf.name_scope("stepwise_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
-            tf_initial_t = tf.constant(0, dtype=tf.int32)
+
+            # -- Softmax and flatten prediction because only a single batch is actually predicted
+            tf_first_prediction = self.tf_lexical_logical_predictions_per_timestep_per_batch[:, -1]
+            tf_stepwise_predictor_output = tf_stepwise_predictor_output.write(0, tf.reshape(tf.concat([
+                tf.nn.softmax(tf_first_prediction[:, :self.num_lexical_features], dim=1),
+                tf.nn.softmax(tf_first_prediction[:, -self.num_logical_features:], dim=1)],
+                axis=1), shape=(-1,)))
             tf_initial_state = self.tf_extrapolator_final_state_and_mem_stack
-            tf_initial_prev_output = self.tf_lexical_logical_embeddings_per_timestep_per_batch[:1, -1]
+
+            # -- Start at one, because first postfix character is predicted by the block extrapolator
+            tf_initial_t = tf.constant(1, dtype=tf.int32)
+
+            # -- Apply argmax/one-hot to cell output so rnn won't be confused.
+            tf_initial_prev_output = self.tf_lexical_logical_predictions_per_timestep_per_batch[:1, -1]
+            tf_initial_prev_output = tf.reshape(tf.concat([
+                    tf.one_hot(
+                        tf.argmax(tf_initial_prev_output[:, :self.num_lexical_features], axis=1),
+                        depth=self.num_lexical_features),
+                    tf.one_hot(
+                        tf.argmax(tf_initial_prev_output[:, -self.num_logical_features:], axis=1),
+                        depth=self.num_logical_features),
+                ],
+                axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
