@@ -9,6 +9,8 @@ from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
 
 extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
+# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat4096_128-128.json", "logs")
+# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat3072_128-128-128.json", "logs")
 discriminator_model = DSLstmDiscriminator("models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json", "logs")
 assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
 featureset = extrapolator_model.featureset
@@ -53,21 +55,24 @@ while True:
 
         prefix_chars, prefix_classes = parts
         prefix_classes = prefix_classes.strip()
-        if len(prefix_chars) != len(prefix_classes):
-            print("The char and class inputs are not of equal length!")
-            continue
+        if len(prefix_chars) == len(prefix_classes):
+            prefix_class_names = []
+            for cl in prefix_classes:
+                cl_name = featureset.class_name_for_id(int(cl))
+                if cl_name:
+                    prefix_class_names.append(cl_name)
+                else:
+                    print("{} is not a valid class id!".format(cl))
+                    prefix_class_names = []
+                    break
+        elif not prefix_classes:
+            prefix_class_names = [col[0][0] for col in discriminator_model.discriminate(featureset, prefix_chars)][:-1]
+            print("Prefix classes:", prefix_class_names)
+        else:
+            print("The command part after '~' must be either of zero or of equal length!")
 
-        prefix_class_names = []
-        for cl in prefix_classes:
-            cl_name = featureset.class_name_for_id(int(cl))
-            if cl_name:
-                prefix_class_names.append(cl_name)
-            else:
-                print("{} is not a valid class id!".format(cl))
-                prefix_class_names = []
-                break
-
-        if not prefix_class_names:
+        if len(prefix_class_names) != len(prefix_chars):
+            print("Invalid prefix classes.")
             continue
 
         completion_chars, completion_classes = extrapolator_model.extrapolate(

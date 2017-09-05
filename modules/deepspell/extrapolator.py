@@ -82,7 +82,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         assert self.num_logical_features == embedding_featureset.num_logical_features()
 
         # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
-        embedded_prefix = embedding_featureset.embed_characters(prefix_chars, prefix_classes)
+        embedded_prefix = embedding_featureset.embed_characters(prefix_chars, prefix_classes, append_eol=False)
         embedded_prefix_length = len(embedded_prefix)
         embedded_prefix = np.reshape(
             embedded_prefix,

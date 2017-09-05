@@ -104,20 +104,22 @@ class DSFeatureSet:
     def num_logical_features(self):
         return len(self.class_ids)
 
-    def embed_characters(self, characters, classes=None):
+    def embed_characters(self, characters, classes=None, append_eol=True):
         """
         Embeds a character sequence with an optional class annotation into a 2D-matrix.
         :param characters: Arbitrary string. If it does not end in the EOL-character '$',
          the EOL-character will be appended automatically.
         :param classes: Optional list of terminal token class names. Must be empty or iterable
          of length len(prefix_chars). If empty, no class features will be written into the result matrix.
+        :param append_eol: Flag to determine whether an EOL character should eb appended
+         to <characters> (and classes if classes is not None).
         :return: The embedded feature matrix with shape
          (len(characters), self.total_num_features_per_character()). Note, that all logical
          features will be set to zero if classes is empty/None.
         """
         assert not classes or len(classes) == len(characters)
         result = []
-        if not characters[-1] == self.eol_char:
+        if append_eol and characters[-1] != self.eol_char:
             characters += self.eol_char
             if classes:
                 classes += [self.eol_class_name]
@@ -158,11 +160,14 @@ class DSFeatureSet:
             char_embedding[self.num_lexical_features() + token_class] = 1.
             result.append(char_embedding)
 
-        # Align output length by padding with EOL chars
+        # -- Append single eol vector
         assert len(result) < length_to_align
+        char_embedding = np.zeros(self.total_num_features_per_character())
+        char_embedding[self.charset_eol_index] = 1.
+        char_embedding[self.num_lexical_features() + self.eol_class_id] = 1.
+        result.append(char_embedding)
+
+        # -- Align output length by padding with null vecs
         while len(result) < length_to_align:
-            char_embedding = np.zeros(self.total_num_features_per_character())
-            char_embedding[self.charset_eol_index] = 1.
-            char_embedding[self.num_lexical_features() + self.eol_class_id] = 1.
-            result.append(char_embedding)
+            result.append(np.zeros(self.total_num_features_per_character()))
         return np.asarray(result, np.float32)

@@ -13,7 +13,7 @@ training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
 training_grammar = DSGrammar("corpora/grammar.json", training_corpus.featureset)
 model = DSLstmDiscriminator(
     "models", "logs",
-    featureset=training_corpus.featureset,
+    features=training_corpus.featureset,
     learning_rate=0.003,
     learning_rate_decay=0.5,
     training_epochs=10,
