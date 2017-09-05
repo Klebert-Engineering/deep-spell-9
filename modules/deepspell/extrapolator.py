@@ -101,13 +101,13 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
         for prediction in stepwise_extrapolator_output:
             lexical_pd = sorted((  # sort char predictions by probability in descending order
-                    (embedding_featureset.charset[i], p)
+                    (embedding_featureset.charset[i], float(p))
                     for i, p in enumerate(prediction[:self.num_lexical_features])
                 ),
                 key=lambda entry: entry[1],
                 reverse=True)
             logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), float(p))
                     for i, p in enumerate(prediction[-self.num_logical_features:])
                 ),
                 key=lambda entry: entry[1],

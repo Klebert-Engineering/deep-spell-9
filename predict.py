@@ -78,7 +78,7 @@ while True:
         completion_chars, completion_classes = extrapolator_model.extrapolate(
             featureset,
             prefix_chars,
-            prefix_class_names, 24)
+            prefix_class_names, 8)
 
     else:
         completion_classes = discriminator_model.discriminate(featureset, user_command)
