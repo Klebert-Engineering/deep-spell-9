@@ -1,6 +1,7 @@
 {
   "port": 5000,
   "host": "0.0.0.0",
+  "hostname": "localhost",
   "__comment__": [
     "Use `models` to specify the models that should be served by the ranking service:",
     "Every model should contain the following properties:",

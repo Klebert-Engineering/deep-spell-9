@@ -3,27 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <title>deep-spell: Neural Auto-Completion in NDS</title>
-    <style>
-        .course-headline {
-            margin-left: 25%;
-        }
-        .heatmap {
-            height: 100%;
-            position: absolute;
-            margin-left: 25%;
-            overflow: auto;
-        }
-    </style>
     <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
 </head>
-<body>
+<body style="background-color: lightgray">
     <div class='w3-container' style='padding: 0'>
-        <div class='w3-row w3-dark-grey' style="z-index: 10; padding-left: 16px">
-            <h3 class="w3-green">Deep-Spell: Neural FTS for NDS</h3>
-            <h5 class="w3-green">{{encoder_model_name}}</h5>
+        <div class="w3-padding w3-white w3-row w3-card-4 w3-center">
+            <h3 style="line-height: 1.2;">Deep Spell: Neural FTS Suggestions for NDS</h3>
+            <span style="font-size: xx-small">{{encoder_model_name}}</span>
         </div>
-        <div class="w3-row w3-container w3-grey"></div>
+        <div class="w3-row w3-container" style="padding: 0">
+            <div class="w3-column w3-twothird">
+                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white">
+                    <h6>Enter your query</h6>
+                    <input list="suggestions" class="w3-input w3-margin-top w3-margin-bottom" id="query-input">
+                    <datalist id="suggestions"></datalist>
+                </div>
+                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white" style="overflow: auto">
+                    <h6>Predicted Categories</h6>
+                    <div id="categories"></div>
+                </div>
+            </div>
+            <div class="w3-column w3-third">
+                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white" style="overflow: auto">
+                    <h6>Completion</h6>
+                    <div id="completion"></div>
+                </div>
+            </div>
+        </div>
     </div>
+    <script>
+        var host = "{{hostname}}";
+
+        function heatmap_table(col_first_data, skip_last_col, color_map, font_size, header_labels, max_rows) {
+            if(!font_size)
+                font_size = "normal";
+            if(!col_first_data.length)
+                return "";
+            if(!max_rows)
+                max_rows = 12;
+            // First, allocate table rows
+            var result = "<table style='font-family: monospace'>\n";
+            if(header_labels) {
+                result += "<thr>";
+                header_labels.forEach(function(label){
+                    result += "<td>"+label+"</td>"
+                });
+                result += "</thr>";
+            }
+            for(var row = 0; row < col_first_data[0].length && row < max_rows; ++row) {
+                result += "<tr>";
+                for(var col = 0; col < col_first_data.length-skip_last_col; ++col) {
+                    var font_color = "black";
+
+                    // Find maximum value in the column
+                    var col_max = .0;
+                    col_first_data[col].forEach(function(value_prob_pair){
+                        if(value_prob_pair[1] > col_max) col_max=value_prob_pair[1]});
+
+                    if(color_map)
+                        font_color = color_map[col_first_data[col][row][0]];
+                    result += "<td style='" +
+                        "font-size:"+font_size+";" +
+                        "opacity:"+(col_first_data[col][row][1]/col_max*.9+.1)+";" +
+                        "color: "+font_color+"'>"+
+                        col_first_data[col][row][0].slice(0,2)+"</td>"
+                }
+                result += "</tr>\n";
+            }
+            result += "</table>\n";
+            return result
+        }
+
+        $('#query-input').on('input', function() {
+            var user_input = $(this).val()
+            var _this = $(this)
+            $.get("/extrapolate?s="+user_input, function(result){
+                /* var best_completion = user_input;
+                for(var i = 0; i < result["extrapolator"][0].length; ++i) {
+                    var char = result["extrapolator"][0][i][0][0];
+                    if(char === " " && i > 0)
+                        break;
+                    best_completion += char
+                }
+                $("#suggestions").html("<option value='"+best_completion+"'></option>")
+                // Trigger datalist reparsing
+                _this.focus(); */
+
+                $("#categories").html(heatmap_table(result["discriminator"], 1, {
+                    "CITY": "red",
+                    "STATE": "blue",
+                    "ROAD": "green",
+                    "ZIP": "yellow",
+                    "COUNTRY": "purple"
+                }, "normal", user_input.split("")));
+                $("#completion").html(heatmap_table(result["extrapolator"][0], 0));
+            })
+        });
+    </script>
 </body>
 </html>

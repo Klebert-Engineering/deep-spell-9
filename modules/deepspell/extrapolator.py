@@ -8,10 +8,10 @@ import numpy as np
 # ============================[ Local Imports ]==========================
 
 from . import predictor
-from . import corpus
 from . import featureset
 
 # =======================[ LSTM Extrapolator Model ]=====================
+
 
 class DSLstmExtrapolator(predictor.DSPredictor):
 
@@ -151,6 +151,13 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         with tf.name_scope("stepwise_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
+
+            # -- The first prediction and lstm state come out of the block extrapolator,
+            #  not the stepwise! The first prediction will be processed two-fold:
+            #  * It will be arg-maxed/converted to one-hot so that it can be fed
+            #    into the stepwise predictor.
+            #  * It will be softmaxed and written into tf_stepwise_predictor_output[0]
+            #    as the first extrapolated character.
 
             # -- Softmax and flatten prediction because only a single batch is actually predicted
             tf_first_prediction = self.tf_lexical_logical_predictions_per_timestep_per_batch[:, -1]

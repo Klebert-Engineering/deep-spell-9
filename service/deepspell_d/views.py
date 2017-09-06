@@ -15,18 +15,19 @@ from deepspell.discriminator import DSLstmDiscriminator
 discriminator_model = None
 extrapolator_model = None
 featureset = None
-
+hostname = ""
 
 def init(args):
     """
     Must be called from the importing file before app.run()!
     """
-    global discriminator_model, extrapolator_model, featureset
+    global discriminator_model, extrapolator_model, featureset, hostname
     app.config.update(args)
     discriminator_model = DSLstmDiscriminator(args["discriminator"])
     extrapolator_model = DSLstmExtrapolator(args["extrapolator"])
     assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
     featureset = extrapolator_model.featureset
+    hostname = args["hostname"]+":"+str(args["port"])
 
 
 # ========================[ Routes ]======================
@@ -35,7 +36,9 @@ def init(args):
 def hello():
     return fl.render_template(
         "index.html",
-        encoder_model_name=discriminator_model.name()+" / "+extrapolator_model.name())
+        encoder_model_name=discriminator_model.name()+" / "+extrapolator_model.name(),
+        hostname=hostname
+    )
 
 
 @app.route("/extrapolate")
@@ -43,14 +46,14 @@ def extrapolate():
     s = fl.request.args.get("s")
     if not s:
         return fl.jsonify({"sequence": []})
-    classes = [col[0][0] for col in discriminator_model.discriminate(featureset, s)][:-1]
-    result = extrapolator_model.extrapolate(featureset, s, classes, 16)
-    return fl.jsonify({"sequence": result})
+    classes = discriminator_model.discriminate(featureset, s)
+    best_classes = [col[0][0] for col in classes][:-1]
+    completion = extrapolator_model.extrapolate(featureset, s, best_classes, 16)
+    return fl.jsonify({"discriminator": classes, "extrapolator": completion})
 
 
 @app.route("/discriminate")
 def discriminate():
-    s = fl.request.args.get("s")
     s = fl.request.args.get("s")
     if not s:
         return fl.jsonify({"sequence": []})
