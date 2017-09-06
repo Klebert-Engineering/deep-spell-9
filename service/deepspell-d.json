@@ -23,10 +23,10 @@
 
     "Use `extrapolator` to specify the auto-completion model:",
     "This may be any path pointing to a valid deepspell.DSLstmExtrapolator model, e.g.:",
-    "  * ../models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json",
+    "  * ../models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json",
     "  * ../models/deepsp_extra-v1_na_lr003_dec70_bat4096_128-128.json"
   ],
   "discriminator": "../models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json",
-  "extrapolator": "../models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json",
+  "extrapolator": "../models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json",
   "corpus": "../corpora/deepspell_data_north_america_v2.tsv"
 }
