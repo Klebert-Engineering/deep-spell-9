@@ -2,9 +2,43 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>deep-spell: Neural Auto-Completion in NDS</title>
+    <title>Deep Spell: Neural Auto-Completion in NDS</title>
     <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <style>
+    table {
+        text-align: center;
+    }
+    .table-wrapper {
+        text-align: center;
+    }
+    @media only screen and (min-width: 700px) {
+        .layout-col-third {
+            float: left;
+            width: calc(33.333% - 16px);
+            margin: 16px;
+            margin-left: 0;
+        }
+        .layout-col-twothird {
+            float: left;
+            width: calc(66.666% - 32px);
+            margin: 16px;
+        }
+    }
+    @media only screen and (max-width: 700px) {
+        .layout-col-third {
+            float: left;
+            width: calc(100% - 32px);
+            margin: 16px;
+            margin-top: 0;
+        }
+        .layout-col-twothird {
+            float: left;
+            width: calc(100% - 32px);
+            margin: 16px;
+        }
+    }
+    </style>
 </head>
 <body style="background-color: lightgray">
     <div class='w3-container' style='padding: 0'>
@@ -13,21 +47,21 @@
             <span style="font-size: xx-small">{{encoder_model_name}}</span>
         </div>
         <div class="w3-row w3-container" style="padding: 0">
-            <div class="w3-column w3-twothird">
-                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white">
+            <div class="layout-col-twothird">
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white">
                     <h6>Enter your query</h6>
-                    <input list="suggestions" class="w3-input w3-margin-top w3-margin-bottom" id="query-input">
-                    <datalist id="suggestions"></datalist>
+                    <input style="padding: 0; padding-bottom: 8px" class="w3-input" id="query-input">
+                    <span id="prediction" class="w3-text-gray w3-small">No Input</span>
                 </div>
-                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white" style="overflow: auto">
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
                     <h6>Predicted Categories</h6>
-                    <div id="categories"></div>
+                    <div id="categories" class="table-wrapper"></div>
                 </div>
             </div>
-            <div class="w3-column w3-third">
-                <div class="w3-row w3-card-4 w3-padding w3-margin w3-white" style="overflow: auto">
+            <div class="layout-col-third">
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
                     <h6>Completion</h6>
-                    <div id="completion"></div>
+                    <div id="completion" class="table-wrapper"></div>
                 </div>
             </div>
         </div>
@@ -43,7 +77,7 @@
             if(!max_rows)
                 max_rows = 12;
             // First, allocate table rows
-            var result = "<table style='font-family: monospace'>\n";
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
             if(header_labels) {
                 result += "<thr>";
                 header_labels.forEach(function(label){
@@ -76,29 +110,35 @@
         }
 
         $('#query-input').on('input', function() {
-            var user_input = $(this).val()
-            var _this = $(this)
-            $.get("/extrapolate?s="+user_input, function(result){
-                /* var best_completion = user_input;
-                for(var i = 0; i < result["extrapolator"][0].length; ++i) {
-                    var char = result["extrapolator"][0][i][0][0];
-                    if(char === " " && i > 0)
-                        break;
-                    best_completion += char
-                }
-                $("#suggestions").html("<option value='"+best_completion+"'></option>")
-                // Trigger datalist reparsing
-                _this.focus(); */
-
-                $("#categories").html(heatmap_table(result["discriminator"], 1, {
-                    "CITY": "red",
-                    "STATE": "blue",
-                    "ROAD": "green",
-                    "ZIP": "yellow",
-                    "COUNTRY": "purple"
-                }, "normal", user_input.split("")));
-                $("#completion").html(heatmap_table(result["extrapolator"][0], 0));
-            })
+            var user_input = $(this).val();
+            if(user_input) {
+                var _this = $(this)
+                $.get("/extrapolate?s=" + encodeURIComponent(user_input), function (result) {
+                    var best_completion = "";
+                    for (var i = 0; i < result["extrapolator"][0].length; ++i) {
+                        var char = result["extrapolator"][0][i][0][0];
+                        if ((char === " " && i > 0) || char === "$")
+                            break;
+                        best_completion += char
+                    }
+                    $("#prediction").html(user_input + "<b>" + best_completion + "</b>")
+                    $("#prediction").removeClass("w3-text-gray")
+                    $("#categories").html(heatmap_table(result["discriminator"], 1, {
+                        "CITY": "red",
+                        "STATE": "blue",
+                        "ROAD": "green",
+                        "ZIP": "yellow",
+                        "COUNTRY": "purple"
+                    }, "normal", user_input.split("")));
+                    $("#completion").html(heatmap_table(result["extrapolator"][0], 0));
+                })
+            }
+            else {
+                $("#prediction").html("No Input");
+                $("#prediction").addClass("w3-text-gray");
+                $("#categories").empty();
+                $("#completion").empty();
+            }
         });
     </script>
 </body>
