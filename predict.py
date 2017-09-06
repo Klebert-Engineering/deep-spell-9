@@ -4,16 +4,16 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
-from deepspell.grammar import DSGrammar
 from deepspell.corpus import DSCorpus
 from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
 
-# training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
-training_corpus = DSCorpus("corpora/deepspell_data_north_america_v2.tsv", "na")
-training_grammar = DSGrammar("corpora/grammar.json", training_corpus)
-extrapolator_model = DSLstmExtrapolator("models/deepspell_lstm_v1_na_lr003_dec70_bat4096.json", "logs")
+extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json", "logs")
+# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json", "logs")
+# extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat3072_128-128-128.json", "logs")
 discriminator_model = DSLstmDiscriminator("models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json", "logs")
+assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
+featureset = extrapolator_model.featureset
 
 print("""
 =============================================================
@@ -39,7 +39,7 @@ Usage:
 Have fun!
 
 """.format(
-    "\n".join("    {}: {}".format(class_name, class_id) for class_name, class_id in training_corpus.class_ids.items())
+    "\n".join("    {}: {}".format(class_name, class_id) for class_name, class_id in featureset.class_ids.items())
 ))
 
 while True:
@@ -55,30 +55,33 @@ while True:
 
         prefix_chars, prefix_classes = parts
         prefix_classes = prefix_classes.strip()
-        if len(prefix_chars) != len(prefix_classes):
-            print("The char and class inputs are not of equal length!")
-            continue
+        if len(prefix_chars) == len(prefix_classes):
+            prefix_class_names = []
+            for cl in prefix_classes:
+                cl_name = featureset.class_name_for_id(int(cl))
+                if cl_name:
+                    prefix_class_names.append(cl_name)
+                else:
+                    print("{} is not a valid class id!".format(cl))
+                    prefix_class_names = []
+                    break
+        elif not prefix_classes:
+            prefix_class_names = [col[0][0] for col in discriminator_model.discriminate(featureset, prefix_chars)][:-1]
+            print("Prefix classes:", prefix_class_names)
+        else:
+            print("The command part after '~' must be either of zero or of equal length!")
 
-        prefix_class_names = []
-        for cl in prefix_classes:
-            cl_name = training_corpus.class_name_for_id(int(cl))
-            if cl_name:
-                prefix_class_names.append(cl_name)
-            else:
-                print("{} is not a valid class id!".format(cl))
-                prefix_class_names = []
-                break
-
-        if not prefix_class_names:
+        if len(prefix_class_names) != len(prefix_chars):
+            print("Invalid prefix classes.")
             continue
 
         completion_chars, completion_classes = extrapolator_model.extrapolate(
-            training_corpus,
+            featureset,
             prefix_chars,
-            prefix_class_names, 24)
+            prefix_class_names, 8)
 
     else:
-        completion_classes = discriminator_model.discriminate(training_corpus, user_command)
+        completion_classes = discriminator_model.discriminate(featureset, user_command)
         completion_chars = []
 
     def pct_(f):

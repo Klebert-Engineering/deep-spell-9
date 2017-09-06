@@ -7,19 +7,25 @@ import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from . import abstract
-from . import corpus
-
+from . import predictor
+from . import featureset
 
 # =======================[ LSTM Extrapolator Model ]=====================
 
-class DSLstmExtrapolator(abstract.DSPredictor):
+
+class DSLstmExtrapolator(predictor.DSPredictor):
 
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, file_or_folder, log_dir="", **kwargs):
         """Documentation in base Model class"""
-        super().__init__("extrapolator", 1, file_or_folder, log_dir, kwargs)
+        super().__init__(
+            name_scope="extrapolator",
+            version=2,
+            file_or_folder=file_or_folder,
+            log_dir=log_dir,
+            kwargs_to_update=kwargs)
+
         # -- Read params
         self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
         # -- Create Tensor Flow compute graph nodes
@@ -48,11 +54,11 @@ class DSLstmExtrapolator(abstract.DSPredictor):
         result["state_size_per_layer"] = self.state_size_per_layer
         return result
 
-    def extrapolate(self, completion_corpus, prefix_chars, prefix_classes, num_chars_to_predict):
+    def extrapolate(self, embedding_featureset, prefix_chars, prefix_classes, num_chars_to_predict):
         """
         Use this method to predict a postfix for the given prefix with this model.
         :param num_chars_to_predict: The number of characters to predict.
-        :param completion_corpus: This corpus indicates the set of tokens that may be predicted, as well
+        :param embedding_featureset: This corpus indicates the set of tokens that may be predicted, as well
          as the (char, embedding) mappings and terminal token classes.
         :param prefix_chars: The actual characters of the prefix to be completed.
         :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
@@ -70,20 +76,22 @@ class DSLstmExtrapolator(abstract.DSPredictor):
               (b, .2),   (c, .4)       (0, .3),   (1, .1)
               (c, .1)],  (a, .1)] ],   (2, .3)],  (0, .0)] ] )
         """
-        assert isinstance(completion_corpus, corpus.DSCorpus)
+        assert isinstance(embedding_featureset, featureset.DSFeatureSet)
         assert len(prefix_chars) == len(prefix_classes)
-        assert self.num_lexical_features == completion_corpus.num_lexical_features_per_character()
-        assert self.num_logical_features == completion_corpus.num_logical_features_per_character()
+        assert self.num_lexical_features == embedding_featureset.num_lexical_features()
+        assert self.num_logical_features == embedding_featureset.num_logical_features()
 
         # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix
+        embedded_prefix = embedding_featureset.embed_characters(prefix_chars, prefix_classes, append_eol=False)
+        embedded_prefix_length = len(embedded_prefix)
         embedded_prefix = np.reshape(
-            completion_corpus.embed_characters(prefix_chars, prefix_classes),
-            newshape=(1, len(prefix_chars), self.num_logical_features + self.num_lexical_features))
+            embedded_prefix,
+            newshape=(1, embedded_prefix_length, self.num_logical_features + self.num_lexical_features))
 
         with self.graph.as_default():
             stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
                 self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
-                self.tf_timesteps_per_batch: np.asarray([len(prefix_chars)]),
+                self.tf_timesteps_per_batch: np.asarray([embedded_prefix_length]),
                 self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
             })
         assert len(stepwise_extrapolator_output) == num_chars_to_predict
@@ -93,13 +101,13 @@ class DSLstmExtrapolator(abstract.DSPredictor):
 
         for prediction in stepwise_extrapolator_output:
             lexical_pd = sorted((  # sort char predictions by probability in descending order
-                    (corpus.CHAR_SUBSET[i], p)
+                    (embedding_featureset.charset[i], float(p))
                     for i, p in enumerate(prediction[:self.num_lexical_features])
                 ),
                 key=lambda entry: entry[1],
                 reverse=True)
             logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (completion_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), float(p))
                     for i, p in enumerate(prediction[-self.num_logical_features:])
                 ),
                 key=lambda entry: entry[1],
@@ -143,9 +151,36 @@ class DSLstmExtrapolator(abstract.DSPredictor):
         with tf.name_scope("stepwise_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
-            tf_initial_t = tf.constant(0, dtype=tf.int32)
+
+            # -- The first prediction and lstm state come out of the block extrapolator,
+            #  not the stepwise! The first prediction will be processed two-fold:
+            #  * It will be arg-maxed/converted to one-hot so that it can be fed
+            #    into the stepwise predictor.
+            #  * It will be softmaxed and written into tf_stepwise_predictor_output[0]
+            #    as the first extrapolated character.
+
+            # -- Softmax and flatten prediction because only a single batch is actually predicted
+            tf_first_prediction = self.tf_lexical_logical_predictions_per_timestep_per_batch[:, -1]
+            tf_stepwise_predictor_output = tf_stepwise_predictor_output.write(0, tf.reshape(tf.concat([
+                tf.nn.softmax(tf_first_prediction[:, :self.num_lexical_features], dim=1),
+                tf.nn.softmax(tf_first_prediction[:, -self.num_logical_features:], dim=1)],
+                axis=1), shape=(-1,)))
             tf_initial_state = self.tf_extrapolator_final_state_and_mem_stack
-            tf_initial_prev_output = self.tf_lexical_logical_embeddings_per_timestep_per_batch[:1, -1]
+
+            # -- Start at one, because first postfix character is predicted by the block extrapolator
+            tf_initial_t = tf.constant(1, dtype=tf.int32)
+
+            # -- Apply argmax/one-hot to cell output so rnn won't be confused.
+            tf_initial_prev_output = self.tf_lexical_logical_predictions_per_timestep_per_batch[:1, -1]
+            tf_initial_prev_output = tf.reshape(tf.concat([
+                    tf.one_hot(
+                        tf.argmax(tf_initial_prev_output[:, :self.num_lexical_features], axis=1),
+                        depth=self.num_lexical_features),
+                    tf.one_hot(
+                        tf.argmax(tf_initial_prev_output[:, -self.num_logical_features:], axis=1),
+                        depth=self.num_logical_features),
+                ],
+                axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
@@ -162,7 +197,7 @@ class DSLstmExtrapolator(abstract.DSPredictor):
                 one_hot_output = tf.reshape(tf.concat([
                         tf.one_hot(
                             tf.argmax(prev_output[:, :self.num_lexical_features], axis=1),
-                            depth=self.num_logical_features),
+                            depth=self.num_lexical_features),
                         tf.one_hot(
                             tf.argmax(prev_output[:, -self.num_logical_features:], axis=1),
                             depth=self.num_logical_features),

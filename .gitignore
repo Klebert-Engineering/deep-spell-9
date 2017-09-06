@@ -1,2 +1,3 @@
-corpora/deepspell.tsv
-.idea/*
+corpora/deepspell*
+!corpora/deepspell_minimal.tsv
+.idea

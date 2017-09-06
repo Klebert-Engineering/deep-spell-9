@@ -7,13 +7,13 @@ import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from . import abstract
+from . import predictor
 from . import corpus
-
+from . import featureset
 
 # ======================[ LSTM Discriminator Model ]=====================
 
-class DSLstmDiscriminator(abstract.DSPredictor):
+class DSLstmDiscriminator(predictor.DSPredictor):
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, file_or_folder, log_dir="", **kwargs):
@@ -21,7 +21,13 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         :param total_features_per_character: The exact number of features per character,
          which is required for the Graph construction.
         """
-        super().__init__("discriminator", 1, file_or_folder, log_dir, kwargs)
+        super().__init__(
+            name_scope="discriminator",
+            version=2,
+            file_or_folder=file_or_folder,
+            log_dir=log_dir,
+            kwargs_to_update=kwargs)
+
         # -- Read params
         self.fw_state_size_per_layer = kwargs.pop("fw_state_size_per_layer", [128, 128])
         self.bw_state_size_per_layer = kwargs.pop("bw_state_size_per_layer", [128, 128])
@@ -52,10 +58,10 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         result["bw_state_size_per_layer"] = self.bw_state_size_per_layer
         return result
 
-    def discriminate(self, embedding_corpus, characters):
+    def discriminate(self, embedding_featureset, characters):
         """
         Use this method to predict the token classes for a given sequence of characters.
-        :param embedding_corpus: This corpus indicates the set of tokens that may be predicted, as well
+        :param embedding_featureset: This corpus indicates the set of tokens that may be predicted, as well
          as the (char, embedding) mappings and terminal token classes.
          It is important that the lexical/logical feature split of the given corpus matches exactly
          self.num_logical_features and self.num_lexical_features.
@@ -69,11 +75,11 @@ class DSLstmDiscriminator(abstract.DSPredictor):
             (2, .2),   (0, .4)   
             (1, .1)],  (1, .1)] ]
         """
-        assert isinstance(embedding_corpus, corpus.DSCorpus)
-        assert self.num_lexical_features == embedding_corpus.num_lexical_features_per_character()
-        assert self.num_logical_features == embedding_corpus.num_logical_features_per_character()
+        assert isinstance(embedding_featureset, featureset.DSFeatureSet)
+        assert self.num_lexical_features == embedding_featureset.num_lexical_features()
+        assert self.num_logical_features == embedding_featureset.num_logical_features()
 
-        char_embeddings = embedding_corpus.embed_characters(characters)
+        char_embeddings = embedding_featureset.embed_characters(characters)
         # -- Store the char emb. size, because they may be more than len(characters) due to EOL padding.
         char_embeddings_length = len(char_embeddings)
         # -- Make sure to reshape the 2D timestep-features matrix into a 3D batch-timestep-features matrix.
@@ -100,7 +106,7 @@ class DSLstmDiscriminator(abstract.DSPredictor):
         completion_classes = []
         for prediction in discriminator_output:
             logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (embedding_corpus.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), p)
+                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), float(p))
                     for i, p in enumerate(prediction)
                 ),
                 key=lambda entry: entry[1],

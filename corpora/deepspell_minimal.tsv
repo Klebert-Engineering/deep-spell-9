@@ -1,0 +1,7 @@
+ROAD	8046336	Main St	*	CITY	22313
+ROAD	8046749	Universal Center Dr	*	CITY	22313	
+ROAD	8046752	Universal Hollywood Dr	*	CITY	22313	
+ROAD	8046756	Universal Terrace Pkwy	*	CITY	22313	
+COUNTRY	1	United States	*	*	*	USA
+CITY	22313	Los Angeles	*	STATE	1
+STATE	1	California	*	COUNTRY	1	CA
