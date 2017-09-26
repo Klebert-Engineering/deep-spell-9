@@ -34,7 +34,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
              self.tf_lexical_logical_predictions_per_timestep_per_batch,
              self.tf_extrapolator_final_state_and_mem_stack) = self._extrapolator()
             (self.tf_maximum_stepwise_extrapolation_length,
-             self.tf_stepwise_extrapolator_output) = self._stepwise_extrapolator()
+             self.tf_stepwise_extrapolator_output) = self._stepwise_beam_extrapolator()
             (self.tf_extrapolator_train_op,
              self.tf_extrapolator_logical_loss_summary,
              self.tf_extrapolator_lexical_loss_summary) = self._extrapolator_optimizer()
@@ -147,16 +147,17 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             tf_lexical_logical_predictions_per_timestep_per_batch,
             tf_final_state)
 
-    def _stepwise_extrapolator(self):
-        with tf.name_scope("stepwise_extrapolator"):
+    def _stepwise_beam_extrapolator(self):
+        with tf.name_scope("stepwise_beam_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
+            tf_num_beams = tf.placeholder(tf.int32)
             tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
 
             # -- The first prediction and lstm state come out of the block extrapolator,
             #  not the stepwise! The first prediction will be processed two-fold:
             #  * It will be arg-maxed/converted to one-hot so that it can be fed
             #    into the stepwise predictor.
-            #  * It will be softmaxed and written into tf_stepwise_predictor_output[0]
+            #  * It will be soft-maxed and written into tf_stepwise_predictor_output[0]
             #    as the first extrapolated character.
 
             # -- Softmax and flatten prediction because only a single batch is actually predicted
