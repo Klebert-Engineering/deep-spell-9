@@ -28,13 +28,17 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
         # -- Read params
         self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
+        self.extrapolation_beam_count = kwargs.pop("extrapolation_beam_count", 5)
+
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():
             (self.tf_extrapolator_cell,
              self.tf_lexical_logical_predictions_per_timestep_per_batch,
-             self.tf_extrapolator_final_state_and_mem_stack) = self._extrapolator()
+             self.tf_extrapolator_final_state_tuple_stack) = self._extrapolator()
             (self.tf_maximum_stepwise_extrapolation_length,
-             self.tf_stepwise_extrapolator_output) = self._stepwise_beam_extrapolator()
+             self.tf_eol_class_idx,
+             self.tf_beam_probs,
+             self.tf_stepwise_beam_output) = self._stepwise_beam_extrapolator()  # , self.tf_stepwise_debug_output
             (self.tf_extrapolator_train_op,
              self.tf_extrapolator_logical_loss_summary,
              self.tf_extrapolator_lexical_loss_summary) = self._extrapolator_optimizer()
@@ -56,7 +60,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
     def extrapolate(self, embedding_featureset, prefix_chars, prefix_classes, num_chars_to_predict):
         """
-        Use this method to predict a postfix for the given prefix with this model.
+        Use this method to predict ranked postfixes for the given prefix with this model.
         :param num_chars_to_predict: The number of characters to predict.
         :param embedding_featureset: This corpus indicates the set of tokens that may be predicted, as well
          as the (char, embedding) mappings and terminal token classes.
@@ -64,17 +68,15 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
          array that is exactly as long as `prefix_chars`. Each entry E_i must be the decimal numeric id of the
          class of character C_i.
-        :return: A pair like
-         (
-            postfix_chars as per-timestep list of list of pairs like (char, probability),
-            postfix_classes as per-timestep list of list of pairs like (class, probability)
-         ),
+        :return: A list of length self.num_beams like
+         `[ [postfix_chars as str, postfix_classes as tuple, postfix_probability]+ ]`,
          where len(postfix_classes) = len(postfix_chars) and len(postfix_classes) <= num_chars_to_predict.
-         E.g. if num_chars_to_predict=2, charset={a,b,c}, classes={0,1,2}, a prediction may look like:
+         E.g. if num_chars_to_predict=2, charset={a,b,c}, classes={0,1,2}, num_beams=2, a prediction may look like:
 
-         ( [ [(a, .7),  [(b, .5)    [ [(1, .4),  [(2, .9)
-              (b, .2),   (c, .4)       (0, .3),   (1, .1)
-              (c, .1)],  (a, .1)] ],   (2, .3)],  (0, .0)] ] )
+         [ ["aabb", [1, 1, 2, 2], .9)
+           ["abab", [1, 1, 2, 2], .1) ]
+
+         Note: A postfix length may stop short of num_chars_to_predict if it encounters EOL.
         """
         assert isinstance(embedding_featureset, featureset.DSFeatureSet)
         assert len(prefix_chars) == len(prefix_classes)
@@ -89,33 +91,41 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             newshape=(1, embedded_prefix_length, self.num_logical_features + self.num_lexical_features))
 
         with self.graph.as_default():
-            stepwise_extrapolator_output = self.session.run(self.tf_stepwise_extrapolator_output, feed_dict={
-                self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
-                self.tf_timesteps_per_batch: np.asarray([embedded_prefix_length]),
-                self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict
-            })
-        assert len(stepwise_extrapolator_output) == num_chars_to_predict
+            stepwise_beam_output, beam_probs = self.session.run(  # , debug_output
+                [self.tf_stepwise_beam_output, self.tf_beam_probs],  # , self.tf_stepwise_debug_output
+                feed_dict={
+                    self.tf_lexical_logical_embeddings_per_timestep_per_batch: embedded_prefix,
+                    self.tf_timesteps_per_batch: np.asarray([embedded_prefix_length]),
+                    self.tf_maximum_stepwise_extrapolation_length: num_chars_to_predict,
+                    self.tf_eol_class_idx: self.featureset.eol_class_id
+                })
+        # print(debug_output)
+        assert len(beam_probs) == self.extrapolation_beam_count
+        assert np.shape(stepwise_beam_output)[0] == num_chars_to_predict
+        assert np.shape(stepwise_beam_output)[1] == self.extrapolation_beam_count
+        assert np.shape(stepwise_beam_output)[2] == 3  # prev_beam_id, char_id, class_id
 
-        completion_chars = []
-        completion_classes = []
+        completions = [["", [], float(beam_probs[i])] for i in range(self.extrapolation_beam_count)]
+        predecessor_beam_ids = list(range(self.extrapolation_beam_count))
+        current_beam_step = num_chars_to_predict
 
-        for prediction in stepwise_extrapolator_output:
-            lexical_pd = sorted((  # sort char predictions by probability in descending order
-                    (embedding_featureset.charset[i], float(p))
-                    for i, p in enumerate(prediction[:self.num_lexical_features])
-                ),
-                key=lambda entry: entry[1],
-                reverse=True)
-            logical_pd = sorted((  # sort class predictions by probability in descending order
-                    (embedding_featureset.class_name_for_id(i) or "UNKNOWN_CLASS[{}]".format(i), float(p))
-                    for i, p in enumerate(prediction[-self.num_logical_features:])
-                ),
-                key=lambda entry: entry[1],
-                reverse=True)
-            completion_chars.append(lexical_pd)
-            completion_classes.append(logical_pd)
+        # -- Decode beams from back to front
+        while True:
+            current_beam_step -= 1
+            if current_beam_step < 0:
+                break
+            beam_step_data = stepwise_beam_output[current_beam_step]
+            for i, (completion, predecessor_beam_id) in enumerate(zip(completions, predecessor_beam_ids)):
+                predecessor_beam_ids[i], char_id, class_id = beam_step_data[predecessor_beam_id]
+                if class_id == self.featureset.eol_class_id:
+                    completion[0] = ""
+                    completion[1] = []
+                completion[0] = self.featureset.charset[char_id] + completion[0]
+                completion[1] = [self.featureset.class_name_for_id(class_id)] + completion[1]
 
-        return completion_chars, completion_classes
+        # -- Sort beams by probability
+        completions = sorted(completions, key=lambda beam: beam[2])
+        return completions
 
     # ----------------------[ Private Methods ]----------------------
 
@@ -150,74 +160,121 @@ class DSLstmExtrapolator(predictor.DSPredictor):
     def _stepwise_beam_extrapolator(self):
         with tf.name_scope("stepwise_beam_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
-            tf_num_beams = tf.placeholder(tf.int32)
-            tf_stepwise_predictor_output = tf.TensorArray(dtype=tf.float32, size=tf_maximum_prediction_length)
+            tf_eol_class_idx = tf.placeholder(tf.int32)
+            tf_stepwise_beam_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length)
+            # tf_stepwise_debug_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length-1)
+            tf_beam_lexical_lookup_idx = tf.constant([
+                (n, i)
+                for n in range(self.extrapolation_beam_count)
+                for i in range(self.num_lexical_features)], dtype=tf.int32)
+
+            # -- Start at one, because first postfix character is predicted by the block extrapolator
+            tf_initial_t = tf.constant(1, dtype=tf.int32)
 
             # -- The first prediction and lstm state come out of the block extrapolator,
             #  not the stepwise! The first prediction will be processed two-fold:
             #  * It will be arg-maxed/converted to one-hot so that it can be fed
             #    into the stepwise predictor.
-            #  * It will be soft-maxed and written into tf_stepwise_predictor_output[0]
-            #    as the first extrapolated character.
+            #  * It will be k-maxed and written as the first beam tails into tf_stepwise_beam_output[0]
+            #    as the first extrapolated characters.
+            tf_first_lexical_prediction = tf.nn.softmax(
+                self.tf_lexical_logical_predictions_per_timestep_per_batch[0, -1, :self.num_lexical_features])
+            tf_first_logical_class = tf.argmax(
+                self.tf_lexical_logical_predictions_per_timestep_per_batch[0, -1, -self.num_logical_features:])
+            tf_beam_state_stack = tuple(
+                tf.contrib.rnn.LSTMStateTuple(
+                    tf.tile(state_tuple.c, [self.extrapolation_beam_count, 1]),
+                    tf.tile(state_tuple.h, [self.extrapolation_beam_count, 1])
+                ) for state_tuple in self.tf_extrapolator_final_state_tuple_stack)
+            tf_beam_probs, tf_beam_tails = tf.nn.top_k(tf_first_lexical_prediction, k=self.extrapolation_beam_count, sorted=False)
+            tf_beam_tails = tf.concat([
+                tf.reshape(tf.tile([0], [self.extrapolation_beam_count]), shape=(-1, 1)),  # Predecessor beam index for first step is irrelevant
+                tf.reshape(tf_beam_tails, shape=(-1, 1)),  # top_k indices from first lexical prob. dist.
+                tf.reshape(tf.tile([tf.cast(tf_first_logical_class, tf.int32)], [self.extrapolation_beam_count]), shape=(-1, 1))  # Always adapt best class for all beams
+            ], axis=1)
+            tf_stepwise_beam_output = tf_stepwise_beam_output.write(0, tf_beam_tails)
+            tf_beam_probs = tf.log(tf_beam_probs)  # Current log-prob for each beam
 
-            # -- Softmax and flatten prediction because only a single batch is actually predicted
-            tf_first_prediction = self.tf_lexical_logical_predictions_per_timestep_per_batch[:, -1]
-            tf_stepwise_predictor_output = tf_stepwise_predictor_output.write(0, tf.reshape(tf.concat([
-                tf.nn.softmax(tf_first_prediction[:, :self.num_lexical_features], dim=1),
-                tf.nn.softmax(tf_first_prediction[:, -self.num_logical_features:], dim=1)],
-                axis=1), shape=(-1,)))
-            tf_initial_state = self.tf_extrapolator_final_state_and_mem_stack
-
-            # -- Start at one, because first postfix character is predicted by the block extrapolator
-            tf_initial_t = tf.constant(1, dtype=tf.int32)
-
-            # -- Apply argmax/one-hot to cell output so rnn won't be confused.
-            tf_initial_prev_output = self.tf_lexical_logical_predictions_per_timestep_per_batch[:1, -1]
-            tf_initial_prev_output = tf.reshape(tf.concat([
-                    tf.one_hot(
-                        tf.argmax(tf_initial_prev_output[:, :self.num_lexical_features], axis=1),
-                        depth=self.num_lexical_features),
-                    tf.one_hot(
-                        tf.argmax(tf_initial_prev_output[:, -self.num_logical_features:], axis=1),
-                        depth=self.num_logical_features),
-                ],
-                axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
+            #  Per-beam per-step log-prob factor for each beam. Will be set to 0 when a beam encounters EOL.
+            tf_unfinished_beams = tf.tile([1.0], [self.extrapolation_beam_count])
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
 
-            def iteration(t, state, prev_output, predictions_per_timestep):
+            def iteration(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):  # , debug_output
+                # -- Get beam predictions and new lstm states
                 with tf.variable_scope("rnn", reuse=True):
-                    prev_output, state = self.tf_extrapolator_cell(
-                        inputs=prev_output,
-                        state=state)
+                    lexical_emb = tf.one_hot(beam_tails[:, 1], depth=self.num_lexical_features)
+                    logical_emb = tf.one_hot(beam_tails[:, 2], depth=self.num_logical_features)
+                    beam_predictions, beam_state_stack = self.tf_extrapolator_cell(
+                        state=beam_state_stack,
+                        inputs=tf.concat([lexical_emb, logical_emb], axis=1))
 
-                # -- Apply argmax/one-hot to cell output so rnn won't incrementally confuse itself.
-                #  Also re-apply shape because otherwise tf.while_loop will
-                #  complain about the shape of prev_output being unpredictable.
-                one_hot_output = tf.reshape(tf.concat([
-                        tf.one_hot(
-                            tf.argmax(prev_output[:, :self.num_lexical_features], axis=1),
-                            depth=self.num_lexical_features),
-                        tf.one_hot(
-                            tf.argmax(prev_output[:, -self.num_logical_features:], axis=1),
-                            depth=self.num_logical_features),
-                    ],
-                    axis=1), shape=(1, self.num_lexical_features+self.num_logical_features))
+                # -- Extract 2D lexical/logical embs. from pred., Argmax logical predictions
+                lexical_beam_pred = tf.nn.softmax(beam_predictions[:, :self.num_lexical_features])
+                logical_beam_pred = tf.nn.softmax(beam_predictions[:, -self.num_logical_features:])
+                logical_beam_pred = tf.cast(tf.argmax(logical_beam_pred, axis=1), tf.int32)
 
-                # -- Softmax and flatten prediction because only a single batch is actually predicted
-                predictions_per_timestep = predictions_per_timestep.write(t, tf.reshape(tf.concat([
-                    tf.nn.softmax(prev_output[:, :self.num_lexical_features], dim=1),
-                    tf.nn.softmax(prev_output[:, -self.num_logical_features:], dim=1)],
-                    axis=1), shape=(-1,)))
-                return t + 1, state, one_hot_output, predictions_per_timestep
+                # -- Flatten and k-max lexical beam predictions
+                lexical_beam_pred = (
+                    tf.log(lexical_beam_pred) # * tf.reshape(unfinished_beams, shape=(-1, 1))
+                ) + tf.reshape(beam_probs, shape=(-1, 1))
+                lexical_beam_pred = tf.reshape(lexical_beam_pred, shape=(-1,))
+                beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=self.extrapolation_beam_count, sorted=False)
 
-            _, _, _, tf_stepwise_predictor_output = tf.while_loop(
+                # -- Gather new beam tail index values
+                top_lexical_beam_pred_ids = tf.gather(tf_beam_lexical_lookup_idx, top_lexical_beam_pred_ids)
+                top_beam_pred_ids = top_lexical_beam_pred_ids[:, 0]
+                # debug_output = debug_output.write(t-1, top_beam_pred_ids)
+                top_logical_beam_pred_ids = tf.gather(logical_beam_pred, top_beam_pred_ids)
+                beam_tails = tf.concat([
+                    top_lexical_beam_pred_ids,
+                    tf.reshape(top_logical_beam_pred_ids, shape=(-1, 1))
+                ], axis=1)
+
+                # -- Check and note which beams just finished (beam class switched to EOL)
+                unfinished_beams = tf.gather(unfinished_beams, top_beam_pred_ids)
+                unfinished_beams = tf.reshape(
+                    tf.minimum(
+                        unfinished_beams,
+                        tf.cast(tf.not_equal(top_logical_beam_pred_ids, tf_eol_class_idx), tf.float32)
+                    ), shape=(self.extrapolation_beam_count,))
+
+                # -- Gather new LSTM state
+                beam_state_stack = tuple(
+                    tf.contrib.rnn.LSTMStateTuple(
+                        tf.gather(state_tuple.c, top_beam_pred_ids),
+                        tf.gather(state_tuple.h, top_beam_pred_ids)
+                    ) for state_tuple in beam_state_stack)
+
+                stepwise_beam_output = stepwise_beam_output.write(t, beam_tails)
+                t = t + 1
+                return (
+                    t,
+                    beam_state_stack,
+                    beam_tails,
+                    beam_probs,
+                    stepwise_beam_output,
+                    unfinished_beams)  # , debug_output
+
+            _, _, _, tf_beam_probs, tf_stepwise_beam_output, _ = tf.while_loop(  # , tf_stepwise_debug_output
                 should_continue, iteration,
-                loop_vars=[tf_initial_t, tf_initial_state, tf_initial_prev_output, tf_stepwise_predictor_output])
+                loop_vars=[
+                    tf_initial_t,
+                    tf_beam_state_stack,
+                    tf_beam_tails,
+                    tf_beam_probs,
+                    tf_stepwise_beam_output,
+                    tf_unfinished_beams])  # , tf_stepwise_debug_output
 
-        tf_stepwise_predictor_output = tf_stepwise_predictor_output.stack()
-        return tf_maximum_prediction_length, tf_stepwise_predictor_output
+            tf_stepwise_beam_output = tf_stepwise_beam_output.stack()
+            # tf_stepwise_debug_output = tf_stepwise_debug_output.stack()
+
+        return (
+            tf_maximum_prediction_length,
+            tf_eol_class_idx,
+            tf_beam_probs,
+            tf_stepwise_beam_output)  # , tf_stepwise_debug_output
 
     def _extrapolator_optimizer(self):
         with tf.name_scope("extrapolator_optimizer"):

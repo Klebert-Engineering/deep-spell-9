@@ -70,6 +70,7 @@ class DSFeatureSet:
         """
         assert self.is_compatible(other_featureset)
         self.class_ids = other_featureset.class_ids
+        self.eol_class_id = other_featureset.eol_class_id
 
     def as_dict(self):
         """

@@ -47,14 +47,15 @@ while True:
     if user_command == "q":
         exit(0)
 
-    completion_chars = None
-    completion_classes = None
+    def pct_(f):
+        return str(int(f*100.0))
 
     if "~" in user_command:
         parts = user_command.split("~")
 
         prefix_chars, prefix_classes = parts
         prefix_classes = prefix_classes.strip()
+        num_chars_to_predict = 16
         if len(prefix_chars) == len(prefix_classes):
             prefix_class_names = []
             for cl in prefix_classes:
@@ -68,37 +69,33 @@ while True:
         elif not prefix_classes:
             prefix_class_names = [col[0][0] for col in discriminator_model.discriminate(featureset, prefix_chars)][:-1]
             print("Prefix classes:", prefix_class_names)
+        elif int(prefix_classes):
+            num_chars_to_predict = int(prefix_classes)
+            prefix_class_names = [col[0][0] for col in discriminator_model.discriminate(featureset, prefix_chars)][:-1]
+            print("Prefix classes:", prefix_class_names)
         else:
-            print("The command part after '~' must be either of zero or of equal length!")
+            print("The input after '~' must be either empty, a number, or equally long as the input before '~'!")
 
         if len(prefix_class_names) != len(prefix_chars):
             print("Invalid prefix classes.")
             continue
 
-        completion_chars, completion_classes = extrapolator_model.extrapolate(
+        completions = extrapolator_model.extrapolate(
             featureset,
             prefix_chars,
-            prefix_class_names, 8)
+            prefix_class_names,
+            num_chars_to_predict)
+
+        for completion in completions:
+            print(completion)
 
     else:
         completion_classes = discriminator_model.discriminate(featureset, user_command)
-        completion_chars = []
-
-    def pct_(f):
-        return str(int(f*100.0))
-
-    char_cols = [[] for _ in range(len(completion_classes))]
-    class_cols = [[] for _ in range(len(completion_classes))]
-    for t in range(len(completion_classes)):
-        if completion_chars:
+        class_cols = [[] for _ in range(len(completion_classes))]
+        for t in range(len(completion_classes)):
             for i in range(3):
-                char_cols[t].append(" {} {}% ".format(completion_chars[t][i][0], pct_(completion_chars[t][i][1])))
-        for i in range(3):
-            class_cols[t].append(" {} {}% ".format(completion_classes[t][i][0][:2], pct_(completion_classes[t][i][1])))
-    max_col_width = max(len(s) for col in class_cols + char_cols for s in col)
-    if completion_chars:
-        for line in range(len(char_cols[0])):
-            print(" " + "|".join(col[line].ljust(max_col_width) for col in char_cols))
-        print(" " + "|".join(["-"*max_col_width] * len(completion_chars)))
-    for line in range(len(class_cols[0])):
-        print(" " + "|".join(col[line].ljust(max_col_width) for col in class_cols))
+                class_cols[t].append(" {} {}% ".format(completion_classes[t][i][0][:2], pct_(completion_classes[t][i][1])))
+        max_col_width = max(len(s) for col in class_cols for s in col)
+        for line in range(len(class_cols[0])):
+            print(" " + "|".join(col[line].ljust(max_col_width) for col in class_cols))
+
