@@ -70,6 +70,7 @@ class DSFeatureSet:
         """
         assert self.is_compatible(other_featureset)
         self.class_ids = other_featureset.class_ids
+        self.eol_class_id = other_featureset.eol_class_id
 
     def as_dict(self):
         """
@@ -109,7 +110,7 @@ class DSFeatureSet:
         Embeds a character sequence with an optional class annotation into a 2D-matrix.
         :param characters: Arbitrary string. If it does not end in the EOL-character '$',
          the EOL-character will be appended automatically.
-        :param classes: Optional list of terminal token class names. Must be empty or iterable
+        :param classes: Optional list of terminal token class names or ids. Must be empty or iterable
          of length len(prefix_chars). If empty, no class features will be written into the result matrix.
         :param append_eol: Flag to determine whether an EOL character should eb appended
          to <characters> (and classes if classes is not None).
@@ -130,7 +131,10 @@ class DSFeatureSet:
             char_embedding[char_id] = 1.
             # Set class label
             if classes:
-                class_id = self.class_ids[classes[i]]
+                if isinstance(classes[i], int):
+                    class_id = classes[i]
+                else:
+                    class_id = self.class_ids[classes[i]]
                 char_embedding[self.num_lexical_features() + class_id] = 1.
             result.append(char_embedding)
         return np.asarray(result, np.float32)

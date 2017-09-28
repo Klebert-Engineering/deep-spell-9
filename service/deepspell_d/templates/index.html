@@ -70,7 +70,40 @@
     <script>
         var host = "{{hostname}}";
 
-        function heatmap_table(col_first_data, skip_last_col, color_map, font_size, header_labels, max_rows) {
+        function extrapolator_heatmap_table(completions, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            if(!completions.length)
+                return "";
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
+            completions.forEach(function(completion){
+                result += "<tr>";
+                var completion_chars = completion[0]
+                var completion_classes = completion[1]
+                var logprob = completion[2]
+                for(var col = 0; col < completion_chars.length; ++col) {
+                    var font_color = "black";
+
+                    // Find maximum value in the column
+                    // var col_max = .0;
+                    // col_first_data[col].forEach(function(value_prob_pair){
+                    //    if(value_prob_pair[1] > col_max) col_max=value_prob_pair[1]});
+
+                    if(color_map)
+                        font_color = color_map[completion_classes[col]];
+                    result += "<td style='" +
+                        "font-size:"+font_size+";" +
+                        "opacity:"+1.+";" + // (col_first_data[col][row][1]/col_max*.9+.1)
+                        "color: "+font_color+"'>"+
+                        completion_chars[col]+"</td>"
+                }
+                result += "</tr>\n";
+            });
+            result += "</table>\n";
+            return result
+        }
+
+        function discriminator_heatmap_table(col_first_data, skip_last_col, color_map, font_size, header_labels, max_rows) {
             if(!font_size)
                 font_size = "normal";
             if(!col_first_data.length)
@@ -112,26 +145,27 @@
 
         $('#query-input').on('input', function() {
             var user_input = $(this).val();
+            var category_colors = {
+                "CITY": "red",
+                "STATE": "blue",
+                "ROAD": "green",
+                "ZIP": "yellow",
+                "COUNTRY": "purple"
+            };
             if(user_input) {
                 var _this = $(this)
                 $.get("/extrapolate?s=" + encodeURIComponent(user_input), function (result) {
                     var best_completion = "";
-                    for (var i = 0; i < result["extrapolator"][0].length; ++i) {
-                        var char = result["extrapolator"][0][i][0][0];
+                    for (var i = 0; i < result["extrapolator"][0][0].length; ++i) {
+                        var char = result["extrapolator"][0][0][i];
                         if ((char === " " && i > 0) || char === "$")
                             break;
                         best_completion += char
                     }
                     $("#prediction").html(user_input + "<b>" + best_completion + "</b>")
                     $("#prediction").removeClass("w3-text-gray")
-                    $("#categories").html(heatmap_table(result["discriminator"], 1, {
-                        "CITY": "red",
-                        "STATE": "blue",
-                        "ROAD": "green",
-                        "ZIP": "yellow",
-                        "COUNTRY": "purple"
-                    }, "normal", user_input.split("")));
-                    $("#completion").html(heatmap_table(result["extrapolator"][0], 0));
+                    $("#categories").html(discriminator_heatmap_table(result["discriminator"], 1, category_colors, "normal", user_input.split("")));
+                    $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
                 })
             }
             else {
