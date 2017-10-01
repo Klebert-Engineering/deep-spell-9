@@ -196,12 +196,23 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             tf_beam_probs = tf.log(tf_beam_probs)  # Current log-prob for each beam
 
             #  Per-beam per-step log-prob factor for each beam. Will be set to 0 when a beam encounters EOL.
-            tf_unfinished_beams = tf.tile([1.0], [self.extrapolation_beam_count])
+            tf_unfinished_beams = tf.tile(True, [self.extrapolation_beam_count])
 
             def should_continue(t, *_):
                 return t < tf_maximum_prediction_length
 
             def iteration(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):  # , debug_output
+                # -- Prepare information that allows for only furthering unfinished beams
+                num_unfinished_beams = tf.count_nonzero(unfinished_beams)
+                num_finished_beams = self.extrapolation_beam_count - num_unfinished_beams
+                _, unfinished_beam_indices = tf.nn.top_k(unfinished_beams, sorted=True, k=self.extrapolation_beam_count)
+                unfinished_beam_tails = tf.gather(beam_tails, unfinished_beam_indices)
+                unfinished_beam_lstm_states = tuple(
+                    tf.contrib.rnn.LSTMStateTuple(
+                        tf.gather(state_tuple.c, unfinished_beam_indices),
+                        tf.gather(state_tuple.h, unfinished_beam_indices)
+                    ) for state_tuple in beam_state_stack)
+
                 # -- Get beam predictions and new lstm states
                 with tf.variable_scope("rnn", reuse=True):
                     lexical_emb = tf.one_hot(beam_tails[:, 1], depth=self.num_lexical_features)
@@ -217,7 +228,8 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
                 # -- Flatten and k-max lexical beam predictions
                 lexical_beam_pred = (
-                    tf.log(lexical_beam_pred) # * tf.reshape(unfinished_beams, shape=(-1, 1))
+                    tf.log(lexical_beam_pred)
+                    # * tf.reshape(tf.cast(unfinished_beams, dtype=tf.float32), shape=(-1, 1))
                 ) + tf.reshape(beam_probs, shape=(-1, 1))
                 lexical_beam_pred = tf.reshape(lexical_beam_pred, shape=(-1,))
                 beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=self.extrapolation_beam_count, sorted=False)
@@ -237,7 +249,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
                 unfinished_beams = tf.reshape(
                     tf.minimum(
                         unfinished_beams,
-                        tf.cast(tf.not_equal(top_logical_beam_pred_ids, tf_eol_class_idx), tf.float32)
+                        tf.not_equal(top_logical_beam_pred_ids, tf_eol_class_idx)
                     ), shape=(self.extrapolation_beam_count,))
 
                 # -- Gather new LSTM state
