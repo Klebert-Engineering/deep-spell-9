@@ -24,7 +24,7 @@ def init(args):
     global discriminator_model, extrapolator_model, featureset, hostname
     app.config.update(args)
     discriminator_model = DSLstmDiscriminator(args["discriminator"])
-    extrapolator_model = DSLstmExtrapolator(args["extrapolator"], extrapolation_beam_count=10)
+    extrapolator_model = DSLstmExtrapolator(args["extrapolator"], extrapolation_beam_count=6)
     assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
     featureset = extrapolator_model.featureset
     hostname = args["hostname"]+":"+str(args["port"])
