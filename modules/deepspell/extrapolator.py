@@ -101,13 +101,12 @@ class DSLstmExtrapolator(predictor.DSPredictor):
                 })
         # print(debug_output)
         assert len(beam_probs) == self.extrapolation_beam_count
-        assert np.shape(stepwise_beam_output)[0] == num_chars_to_predict
         assert np.shape(stepwise_beam_output)[1] == self.extrapolation_beam_count
         assert np.shape(stepwise_beam_output)[2] == 3  # prev_beam_id, char_id, class_id
 
         completions = [["", [], float(beam_probs[i])] for i in range(self.extrapolation_beam_count)]
         predecessor_beam_ids = list(range(self.extrapolation_beam_count))
-        current_beam_step = num_chars_to_predict
+        current_beam_step = np.shape(stepwise_beam_output)[0]
 
         # -- Decode beams from back to front
         while True:
@@ -117,14 +116,23 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             beam_step_data = stepwise_beam_output[current_beam_step]
             for i, (completion, predecessor_beam_id) in enumerate(zip(completions, predecessor_beam_ids)):
                 predecessor_beam_ids[i], char_id, class_id = beam_step_data[predecessor_beam_id]
-                if class_id == self.featureset.eol_class_id:
+                class_id = self.featureset.class_name_for_id(class_id)
+                if len(completion[1]) > 0 and class_id != completion[1][0]:
                     completion[0] = ""
                     completion[1] = []
                 completion[0] = self.featureset.charset[char_id] + completion[0]
-                completion[1] = [self.featureset.class_name_for_id(class_id)] + completion[1]
+                completion[1] = [class_id] + completion[1]
+
+        # -- Remove duplicate entries.
+        unique_completions = dict()
+        for completion in completions:
+            if completion[0] not in unique_completions:
+                unique_completions[completion[0]] = completion
+            elif completion[2] > unique_completions[completion[0]][2]:
+                unique_completions[completion[0]][2] = completion[2]
 
         # -- Sort beams by probability
-        completions = sorted(completions, key=lambda beam: beam[2])
+        completions = sorted(unique_completions.values(), key=lambda completion: completion[2], reverse=True)
         return completions
 
     # ----------------------[ Private Methods ]----------------------
@@ -161,7 +169,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         with tf.name_scope("stepwise_beam_extrapolator"):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_eol_class_idx = tf.placeholder(tf.int32)
-            tf_stepwise_beam_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length)
+            tf_stepwise_beam_output = tf.TensorArray(dtype=tf.int32, size=1, dynamic_size=True)
             # tf_stepwise_debug_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length-1)
             tf_beam_lexical_lookup_idx = tf.constant([
                 (n, i)
@@ -196,18 +204,33 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             tf_beam_probs = tf.log(tf_beam_probs)  # Current log-prob for each beam
 
             #  Per-beam per-step log-prob factor for each beam. Will be set to 0 when a beam encounters EOL.
-            tf_unfinished_beams = tf.tile([1.0], [self.extrapolation_beam_count])
+            tf_unfinished_beams = tf.tile([True], [self.extrapolation_beam_count])
 
-            def should_continue(t, *_):
-                return t < tf_maximum_prediction_length
+            def should_continue(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):
+                return tf.logical_and(t < tf_maximum_prediction_length, tf.count_nonzero(unfinished_beams) > 0)
 
             def iteration(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):  # , debug_output
+                # -- Prepare information that allows for only furthering unfinished beams
+                num_unfinished_beams = tf.cast(tf.count_nonzero(unfinished_beams), tf.int32)
+                num_finished_beams = self.extrapolation_beam_count - num_unfinished_beams
+                _, beam_indices_sorted_by_finished = tf.nn.top_k(
+                    tf.cast(unfinished_beams, tf.int8), sorted=True, k=self.extrapolation_beam_count)
+                finished_beam_indices = beam_indices_sorted_by_finished[num_unfinished_beams:]
+                unfinished_beam_indices = beam_indices_sorted_by_finished[:num_unfinished_beams]
+                unfinished_beam_tails = tf.gather(beam_tails, unfinished_beam_indices)
+                unfinished_beam_probs = tf.gather(beam_probs, unfinished_beam_indices)
+                unfinished_beam_lstm_states = tuple(
+                    tf.contrib.rnn.LSTMStateTuple(
+                        tf.gather(state_tuple.c, unfinished_beam_indices),
+                        tf.gather(state_tuple.h, unfinished_beam_indices)
+                    ) for state_tuple in beam_state_stack)
+
                 # -- Get beam predictions and new lstm states
                 with tf.variable_scope("rnn", reuse=True):
-                    lexical_emb = tf.one_hot(beam_tails[:, 1], depth=self.num_lexical_features)
-                    logical_emb = tf.one_hot(beam_tails[:, 2], depth=self.num_logical_features)
+                    lexical_emb = tf.one_hot(unfinished_beam_tails[:, 1], depth=self.num_lexical_features)
+                    logical_emb = tf.one_hot(unfinished_beam_tails[:, 2], depth=self.num_logical_features)
                     beam_predictions, beam_state_stack = self.tf_extrapolator_cell(
-                        state=beam_state_stack,
+                        state=unfinished_beam_lstm_states,
                         inputs=tf.concat([lexical_emb, logical_emb], axis=1))
 
                 # -- Extract 2D lexical/logical embs. from pred., Argmax logical predictions
@@ -216,35 +239,51 @@ class DSLstmExtrapolator(predictor.DSPredictor):
                 logical_beam_pred = tf.cast(tf.argmax(logical_beam_pred, axis=1), tf.int32)
 
                 # -- Flatten and k-max lexical beam predictions
-                lexical_beam_pred = (
-                    tf.log(lexical_beam_pred) # * tf.reshape(unfinished_beams, shape=(-1, 1))
-                ) + tf.reshape(beam_probs, shape=(-1, 1))
+                lexical_beam_pred = tf.log(lexical_beam_pred) + tf.reshape(unfinished_beam_probs, shape=(-1, 1))
                 lexical_beam_pred = tf.reshape(lexical_beam_pred, shape=(-1,))
-                beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=self.extrapolation_beam_count, sorted=False)
+                unfinished_beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=num_unfinished_beams, sorted=False)
 
-                # -- Gather new beam tail index values
+                # -- Adapt new probability values for the beams
+                beam_probs = tf.reshape(tf.concat([
+                    unfinished_beam_probs,
+                    tf.gather(beam_probs, finished_beam_indices)
+                ], axis=0), shape=(self.extrapolation_beam_count,))
+
+                # -- Gather new beam tail index values.
+                #  Note, that these beam ids are local to the unfinished beam indices! They will therefore
+                #  be translated to global beam indices via a <gather-lookup> after the new beam tails are processed.
                 top_lexical_beam_pred_ids = tf.gather(tf_beam_lexical_lookup_idx, top_lexical_beam_pred_ids)
                 top_beam_pred_ids = top_lexical_beam_pred_ids[:, 0]
                 # debug_output = debug_output.write(t-1, top_beam_pred_ids)
                 top_logical_beam_pred_ids = tf.gather(logical_beam_pred, top_beam_pred_ids)
-                beam_tails = tf.concat([
-                    top_lexical_beam_pred_ids,
-                    tf.reshape(top_logical_beam_pred_ids, shape=(-1, 1))
-                ], axis=1)
+                beam_tails = tf.reshape(tf.concat([
+                    tf.reshape(tf.concat([  # |--> Aforementioned <gather-lookup>
+                        tf.gather(unfinished_beam_indices, top_beam_pred_ids),
+                        finished_beam_indices], axis=0), shape=(-1, 1)),
+                    tf.reshape(tf.concat([
+                        top_lexical_beam_pred_ids[:, 1],
+                        tf.tile([0], [num_finished_beams])], axis=0), shape=(-1, 1)),
+                    tf.reshape(tf.concat([
+                        top_logical_beam_pred_ids,
+                        tf.tile([0], [num_finished_beams])], axis=0), shape=(-1, 1))
+                ], axis=1), shape=(self.extrapolation_beam_count, 3))
 
-                # -- Check and note which beams just finished (beam class switched to EOL)
-                unfinished_beams = tf.gather(unfinished_beams, top_beam_pred_ids)
-                unfinished_beams = tf.reshape(
-                    tf.minimum(
-                        unfinished_beams,
-                        tf.cast(tf.not_equal(top_logical_beam_pred_ids, tf_eol_class_idx), tf.float32)
-                    ), shape=(self.extrapolation_beam_count,))
+                # -- Check and note which beams just finished (beam class switched from original)
+                unfinished_beams = tf.reshape(tf.concat([
+                    tf.equal(top_logical_beam_pred_ids, unfinished_beam_tails[:, 2]),
+                    tf.zeros([num_finished_beams], dtype=tf.bool)
+                ], axis=0), shape=(self.extrapolation_beam_count,))
 
-                # -- Gather new LSTM state
+                # -- Gather new LSTM states. Make sure that exactly extrapolation_beam_count states are written
+                #  per state stack component, such that their shape is invariant.
+                padded_top_beam_pred_ids = tf.reshape(tf.concat([
+                    top_beam_pred_ids,
+                    tf.tile([0], [num_finished_beams])
+                ], axis=0), shape=(self.extrapolation_beam_count,))
                 beam_state_stack = tuple(
                     tf.contrib.rnn.LSTMStateTuple(
-                        tf.gather(state_tuple.c, top_beam_pred_ids),
-                        tf.gather(state_tuple.h, top_beam_pred_ids)
+                        tf.gather(state_tuple.c, padded_top_beam_pred_ids),
+                        tf.gather(state_tuple.h, padded_top_beam_pred_ids)
                     ) for state_tuple in beam_state_stack)
 
                 stepwise_beam_output = stepwise_beam_output.write(t, beam_tails)

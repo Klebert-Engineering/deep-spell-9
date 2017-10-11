@@ -51,8 +51,9 @@
             <div class="layout-col-twothird">
                 <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white">
                     <h6>Enter your query</h6>
-                    <input style="padding: 0; padding-bottom: 8px" class="w3-input" id="query-input">
+                    <input autocomplete="off" style="padding: 0; padding-bottom: 8px" class="w3-input" id="query-input">
                     <span id="prediction" class="w3-text-gray w3-small">No Input</span>
+                    <span class="w3-small" style="float: right">Press tab to complete.</span>
                 </div>
                 <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
                     <h6>Predicted Categories</h6>
@@ -69,6 +70,7 @@
     </div>
     <script>
         var host = "{{hostname}}";
+        var bestSuggestion = "";
 
         function extrapolator_heatmap_table(completions, color_map, font_size) {
             if(!font_size)
@@ -143,6 +145,14 @@
             return result
         }
 
+        $('#query-input').keydown(function(e) {
+            if(e.which === 9) {
+                $('#query-input')[0].value += bestSuggestion;
+                if (e.preventDefault)
+                    e.preventDefault();
+                return false;
+            }
+        });
         $('#query-input').on('input', function() {
             var user_input = $(this).val();
             var category_colors = {
@@ -155,14 +165,14 @@
             if(user_input) {
                 var _this = $(this)
                 $.get("/extrapolate?s=" + encodeURIComponent(user_input), function (result) {
-                    var best_completion = "";
+                    bestSuggestion = "";
                     for (var i = 0; i < result["extrapolator"][0][0].length; ++i) {
                         var char = result["extrapolator"][0][0][i];
                         if ((char === " " && i > 0) || char === "$")
                             break;
-                        best_completion += char
+                        bestSuggestion += char
                     }
-                    $("#prediction").html(user_input + "<b>" + best_completion + "</b>")
+                    $("#prediction").html(user_input + "<b>" + bestSuggestion + "</b>")
                     $("#prediction").removeClass("w3-text-gray")
                     $("#categories").html(discriminator_heatmap_table(result["discriminator"], 1, category_colors, "normal", user_input.split("")));
                     $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
