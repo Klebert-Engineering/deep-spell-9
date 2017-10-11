@@ -17,6 +17,7 @@ extrapolator_model = None
 featureset = None
 hostname = ""
 
+
 def init(args):
     """
     Must be called from the importing file before app.run()!

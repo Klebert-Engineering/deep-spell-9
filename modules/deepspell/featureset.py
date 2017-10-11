@@ -23,9 +23,12 @@ class DSFeatureSet:
       token type (like CITY, COUNTRY, ROAD etc.).
     """
 
+    LOWER_CASE_CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789-., /_$"
+    FULL_CASE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + LOWER_CASE_CHARSET
+
     def __init__(self,
                  classes=None,
-                 charset="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-., /_$",
+                 charset=LOWER_CASE_CHARSET,
                  eol_char="$",
                  unk_char="_",
                  eol_class_name="EOL"):
