@@ -12,12 +12,23 @@
                     "prior": 0.1
                 },
                 {
-                    "class": "CITY",
-                    "prior": 0.7
+                    "class": "STATE",
+                    "prior": 0.2
                 },
                 {
-                    "class": "STATE",
-                    "prior": 0.3
+                    "class": "city-road",
+                    "prior": 0.8
+                }
+            ]
+        },
+        {
+            "class": "city-road",
+            "type": "random-sequence",
+            "symbols":
+            [
+                {
+                    "class": "CITY",
+                    "prior": 1.0
                 },
                 {
                     "class": "ROAD",
@@ -25,5 +36,9 @@
                 }
             ]
         }
-    ]
+    ],
+    "corruption": {
+        "stddev": 0.5,
+        "mean": 1.0
+    }
 }
