@@ -6,6 +6,8 @@ import codecs
 from unidecode import unidecode
 import random
 import json
+import math
+import numpy as np
 
 # ==========================[ Local Imports ]========================
 
@@ -80,10 +82,7 @@ class DSToken:
 
 class DSGrammarRandomSequenceRule:
 
-    # ------------------------[ Properties ]------------------------
-
-    type = ""
-    symbols = None
+    type = "random-sequence"
 
     # ---------------------[ Interface Methods ]---------------------
 
@@ -104,56 +103,55 @@ class DSGrammarRandomSequenceRule:
             if rule or isinstance(rule, int):
                 self.symbols.append((rule, rule_prob))
 
-    def generate_with_token(self, token):
+    def generate_with_token(self, token, available_tokens_per_class=None, deck=None):
         assert isinstance(token, DSToken)
-        # Collect symbols that will be generated. The given @token is definitely included.
-        deck = [token.id[0]]
-        available_tokens_per_class = {token.id[0]: token}
-        available_tokens_per_class.update(token.recursive_parents())
-        available_tokens_per_class.update(token.random_recursive_children())
-        for symbol in self.symbols:
-            # Non-terminals in random sequence not yet supported
-            assert isinstance(symbol[0], int)
+        is_root_call = False
+        if not deck:
+            is_root_call = True
+            # Collect symbols that will be generated. The given @token is definitely included.
+            assert not available_tokens_per_class
+            deck = [token.id[0]]
+            available_tokens_per_class = {token.id[0]: token}
+            available_tokens_per_class.update(token.recursive_parents())
+            available_tokens_per_class.update(token.random_recursive_children())
+        for symbol, symbol_prior in self.symbols:
+            symbol_prob = random.uniform(0., 1.)
             # Do not re-evaluate fixed @token that is already in deck
-            if symbol[0] != token.id[0] and symbol[0] in available_tokens_per_class:
-                uniform_val = random.uniform(0., 1.)
-                if uniform_val <= symbol[1]:
-                    deck.append(symbol[0])
-        random.shuffle(deck)
-        return [available_tokens_per_class[class_id] for class_id in deck]
+            if isinstance(symbol, DSGrammarRandomSequenceRule):
+                if symbol_prob <= symbol_prior or symbol.has_terminal_recursive(token.id[0]):
+                    symbol.generate_with_token(token, available_tokens_per_class, deck)
+            else:
+                assert isinstance(symbol, int)
+                if symbol != token.id[0] and symbol in available_tokens_per_class:
+                    if symbol_prob <= symbol_prior:
+                        deck.append(symbol)
+        if is_root_call:
+            random.shuffle(deck)
+            return [available_tokens_per_class[class_id] for class_id in deck]
+
+    def has_terminal_recursive(self, terminal_class):
+        for symbol, _ in self.symbols:
+            if symbol == terminal_class:
+                return True
+            elif isinstance(symbol, DSGrammarRandomSequenceRule):
+                return symbol.has_terminal_recursive(terminal_class)
+        return False
 
 
 # ===========================[ FtsGrammar ]==========================
 
 class DSGrammar:
 
-    # ------------------------[ Properties ]------------------------
-
     ROOT_SYMBOL = "root-nonterminal"
     RULES = "rules"
+    CORRUPTION = "corruption"
+    CORRUPTION_MEAN = "mean"
+    CORRUPTION_STDDEV = "stddev"
     RULE_CLASS = "class"
     RULE_TYPE = "type"
     RULE_RANDOM_SEQUENCE_TYPE = "random-sequence"
     RULE_PROBABILITY = "prior"
     RULE_SYMBOLS = "symbols"
-
-    """
-    @terminal_classes describes the string/numeric identities for
-    terminal classes in the grammar. Those are usually defined by
-    a client FtsCorpus.  
-    """
-    terminal_classes = None
-
-    """
-    Dictionary which points from a nonterminal name to the rule it generates.
-    A rule is tuple like (rule_type as string, [FtsGrammarRule]).
-    """
-    nonterminal_rules = None
-
-    """
-    Name of the nonterminal class which will be used as an entry point for sample generation.
-    """
-    root_nonterminal = ""
 
     # ---------------------[ Interface Methods ]---------------------
 
@@ -161,15 +159,28 @@ class DSGrammar:
         """
         Create a new FTS grammar from a JSON definition file.
         :param path: Path of the JSON-file which holds the grammar.
-        :param terminal_featureset: FtsCorpus which provides the terminal symbols for the grammar.
+        :param terminal_featureset: DSFeatureSet which provides the terminal symbols for the grammar.
         """
         assert isinstance(terminal_featureset, featureset.DSFeatureSet)
         with codecs.open(path) as json_grammar_file:
             print("Loading {} ...".format(path))
             json_grammar = json.load(json_grammar_file)
+
+        # Describes the string/numeric identities for terminal classes in the grammar.
+        # Those are usually defined by a client FtsCorpus.
         self.terminal_classes = terminal_featureset.class_ids
+
+        # Dictionary which points from a nonterminal name to the rule it generates.
+        # A rule is tuple like (rule_type as string, [FtsGrammarRule]).
         self.root_nonterminal = json_grammar[DSGrammar.ROOT_SYMBOL]
+
+        # Name of the nonterminal class which will be used as an entry point for sample generation.
         self.nonterminal_rules = dict()
+
+        # Normal distribution over the number of errors that should be inserted into the output tokens.
+        self.corruption_dist_mean = json_grammar[DSGrammar.CORRUPTION][DSGrammar.CORRUPTION_MEAN]
+        self.corruption_dist_stddev = json_grammar[DSGrammar.CORRUPTION][DSGrammar.CORRUPTION_STDDEV]
+
         for json_rule in json_grammar[DSGrammar.RULES]:
             new_rule = None
             new_rule_type = json_rule[DSGrammar.RULE_TYPE]
@@ -189,3 +200,37 @@ class DSGrammar:
     def random_phrase_with_token(self, token):
         assert isinstance(token, DSToken)
         return self.nonterminal_rules[self.root_nonterminal].generate_with_token(token)
+
+    def corrupt(self, string_to_corrupt):
+        """
+        Corrupts a string with deletions, switches, insertions and substitutions `n` times,
+        where `n` is the floor of a number that is drawn from the normal distribution given by
+        `self.corruption_dist_mean` and `self.corruption_dist_stddev`.
+        :param string_to_corrupt: The string that should be corrupted.
+        :return: The corrupted string.
+        """
+        def delete_char(s):
+            pos = int(math.floor(random.uniform(0, len(s))))
+            return s[:pos]+s[pos+1:]
+
+        def subst_char(s):
+            pos = int(math.floor(random.uniform(0, len(s))))
+            ch = chr(ord('a') + int(random.uniform(0, 26)))
+            return s[:pos] + ch + s[pos+1:]
+
+        def switch_char(s):
+            pos1 = int(math.floor(random.uniform(0, len(s)-1)))
+            pos2 = int(math.floor(random.uniform(pos1+1, len(s))))
+            return s[:pos1] + s[pos2] + s[pos1+1:pos2] + s[pos1] + s[pos2+1:]
+
+        def insert_char(s):
+            pos = int(math.floor(random.uniform(0, len(s)+1)))
+            ch = chr(ord('a') + int(random.uniform(0, 26)))
+            return s[:pos] + ch + s[pos:]
+
+        n = int(np.floor(np.random.normal(self.corruption_dist_mean, self.corruption_dist_stddev)))
+        for i in range(n):
+            corruption_function = random.choice((delete_char, subst_char, switch_char, insert_char))
+            string_to_corrupt = corruption_function(string_to_corrupt)
+
+        return string_to_corrupt

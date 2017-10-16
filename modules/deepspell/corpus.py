@@ -23,7 +23,7 @@ class DSCorpus:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, path, name):
+    def __init__(self, path, name, lowercase=False):
         self.name = name
         # -- class_ids is a dictionary like { <class_name_string>: <class_id> }
         class_ids = defaultdict(lambda: len(class_ids))
@@ -38,7 +38,7 @@ class DSCorpus:
                 if len(parts) >= 6:
                     class_id = class_ids[parts[0]]
                     token_id = int(parts[1])
-                    token_str = parts[2]
+                    token_str = parts[2].lower() if lowercase else parts[2]
                     parent_class_id = "*"
                     parent_token_id = 0
                     if parts[4] != grammar.WILDCARD_TOKEN:
@@ -63,7 +63,9 @@ class DSCorpus:
             print("  * {} tokens for class '{}'".format(len(self.data[class_id]), class_name))
 
         # -- Create featureset from the gathered class ids
-        self.featureset = featureset.DSFeatureSet(classes=class_ids)
+        self.featureset = featureset.DSFeatureSet(
+            classes=class_ids,
+            charset=featureset.DSFeatureSet.LOWER_CASE_CHARSET if lowercase else featureset.DSFeatureSet.FULL_CASE_CHARSET)
 
     def get_batch_and_lengths(self,
                               batch_size,
