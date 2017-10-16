@@ -3,6 +3,21 @@
     "rules":
     [
         {
+            "class": "city-road",
+            "type": "random-sequence",
+            "symbols":
+            [
+                {
+                    "class": "CITY",
+                    "prior": 1.0
+                },
+                {
+                    "class": "ROAD",
+                    "prior": 0.5
+                }
+            ]
+        },
+        {
             "class": "us-address",
             "type": "random-sequence",
             "symbols":
@@ -18,21 +33,6 @@
                 {
                     "class": "city-road",
                     "prior": 0.8
-                }
-            ]
-        },
-        {
-            "class": "city-road",
-            "type": "random-sequence",
-            "symbols":
-            [
-                {
-                    "class": "CITY",
-                    "prior": 1.0
-                },
-                {
-                    "class": "ROAD",
-                    "prior": 0.5
                 }
             ]
         }
