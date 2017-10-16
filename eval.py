@@ -105,15 +105,23 @@ class TokenClassBenchmark:
 
     def extrapolation_precision(self, prefix_length):
         total, correct = self.completion_accuracies[prefix_length]
+        if total == 0:
+            return .0
         return float(correct)/float(total)
 
     def discrimination_precision(self):
+        if self.identified == 0:
+            return .0
         return float(self.correctly_identified)/float(self.identified)
 
     def discrimination_recall(self):
+        if self.identified == 0:
+            return .0
         return float(self.correctly_identified)/float(self.correctly_identified+self.not_identified)
 
     def discrimination_f1(self):
+        if self.identified == 0:
+            return .0
         prec = self.discrimination_precision()
         rec = self.discrimination_recall()
         return (2.0*prec*rec)/(prec+rec)
