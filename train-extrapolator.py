@@ -17,7 +17,7 @@ model = DSLstmExtrapolator(
     learning_rate=0.003,
     learning_rate_decay=0.5,
     training_epochs=5,
-    batch_size=3192,
-    state_size_per_layer=(128, 128, 128))
+    batch_size=3072,
+    state_size_per_layer=(256, 256))
 
 model.train(training_corpus, training_grammar)

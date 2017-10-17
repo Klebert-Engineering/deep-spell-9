@@ -21,7 +21,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         """Documentation in base Model class"""
         super().__init__(
             name_scope="extrapolator",
-            version=2,
+            version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
             kwargs_to_update=kwargs)

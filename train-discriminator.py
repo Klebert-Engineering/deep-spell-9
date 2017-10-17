@@ -16,10 +16,10 @@ model = DSLstmDiscriminator(
     features=training_corpus.featureset,
     learning_rate=0.003,
     learning_rate_decay=0.5,
-    training_epochs=10,
-    batch_size=3192,
-    fw_state_size_per_layer=(64, 128),
-    bw_state_size_per_layer=(64, 128),
-    min_sample_length_before_truncation=5)
+    training_epochs=2,
+    batch_size=3072,
+    fw_state_size_per_layer=(128, 128),
+    bw_state_size_per_layer=(128, ),
+    min_sample_length_before_truncation=3)
 
 model.train(training_corpus, training_grammar)
