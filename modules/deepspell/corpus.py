@@ -24,7 +24,7 @@ class DSCorpus:
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, path, name, lowercase=False):
-        self.name = name
+        self.name = name+("-lower" if lowercase else "")
         # -- class_ids is a dictionary like { <class_name_string>: <class_id> }
         class_ids = defaultdict(lambda: len(class_ids))
         # -- data is a dictionary like: { <class_id>: [<FtsToken>] }
@@ -105,14 +105,11 @@ class DSCorpus:
             sample_grammar.random_phrase_with_token(self.data[token_id[0]][token_id[1]])
             for token_id in batch_token_indices]
         # Find the longest phrase, such that all lines in the output matrix can be length-aligned
-        batch_lengths = np.asarray([
-            self._token_sequence_length(phrase_tokens)
-            for phrase_tokens in batch_phrases])
-        max_phrase_length = max(batch_lengths)
-        batch_embedding_sequences = np.asarray([
+        max_phrase_length = max(self._token_sequence_length(phrase_tokens) for phrase_tokens in batch_phrases)
+        batch_embedding_sequences, batch_lengths = zip(*(
             self.featureset.embed_tokens(phrase_tokens, max_phrase_length, min_num_chars_truncate)
-            for phrase_tokens in batch_phrases], np.float32)
-        return batch_embedding_sequences, batch_lengths, epoch_leftover_indices
+            for phrase_tokens in batch_phrases))
+        return np.asarray(batch_embedding_sequences), np.asarray(batch_lengths), epoch_leftover_indices
 
     @staticmethod
     def _token_sequence_length(tokens):

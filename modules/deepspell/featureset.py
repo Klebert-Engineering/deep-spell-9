@@ -146,6 +146,7 @@ class DSFeatureSet:
         """
         Embeds a sequence of FtsToken instances into a 2D feature matrix
         like [num_characters][total_num_features_per_character()].
+        :return: 2D Embedding feature matrix and length of sample
         """
         result = []
         char_class_seq = [
@@ -175,6 +176,7 @@ class DSFeatureSet:
         result.append(char_embedding)
 
         # -- Align output length by padding with null vecs
+        true_sample_length = len(result)
         while len(result) < length_to_align:
             result.append(np.zeros(self.total_num_features_per_character()))
-        return np.asarray(result, np.float32)
+        return np.asarray(result, np.float32), true_sample_length
