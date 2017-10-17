@@ -246,7 +246,7 @@ class DSPredictor:
     # -*- coding: utf-8 -*-
 
     @staticmethod
-    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
         """
         Call in a loop to create terminal progress bar
         @params:

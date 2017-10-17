@@ -62,7 +62,7 @@ print("  ... grammar:       "+args.grammar)
 print("=======================================================================")
 print("")
 
-training_corpus = DSCorpus(args.corpus, "na")
+training_corpus = DSCorpus(args.corpus, "na", lowercase=True)
 extrapolator_model = DSLstmExtrapolator(args.extra, "logs")
 discriminator_model = DSLstmDiscriminator(args.discr, "logs")
 assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
@@ -71,7 +71,7 @@ featureset = extrapolator_model.featureset
 training_grammar = DSGrammar(args.grammar, training_corpus.featureset)
 
 
-def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
     """
     Call in a loop to create terminal progress bar
     @params:
