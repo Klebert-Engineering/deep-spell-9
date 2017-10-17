@@ -20,7 +20,7 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
     def __init__(self, file_or_folder, log_dir="", **kwargs):
         """Documentation in base Model class"""
         super().__init__(
-            name_scope="encoder",
+            name_scope="spelling-encoder",
             version=1,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
@@ -31,6 +31,7 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
         self.encoder_bw_state_size_per_layer = kwargs.pop("encoder_bw_state_size_per_layer", [128, 128])
         self.decoder_state_size_per_layer = kwargs.pop("decoder_state_size_per_layer", [128, 128])
         self.embedding_size = kwargs.pop("embedding_size", 8)
+        self.decoder_input_keep_prob = kwargs.pop("decoder_input_keep_prob", .75)
 
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():
@@ -40,47 +41,40 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
              self.tf_kl_loss,
              self.tf_kl_loss_summary,
              self.tf_kl_rate) = self._encoder_to_latent()
+            (self.tf_eol_char_id,
+             self.tf_unk_char_id,
+             self.tf_start_char_id,
+             self.tf_correct_decoder_output,
+             self.tf_stepwise_decoder_output) = self._latent_to_stepwise_decoder()
             (self.tf_train_op,
-             self.tf_eol_lexical_idx,
-             self.tf_unk_lexical_idx,
-             self.tf_kd_loss_summary,
              self.tf_lexical_loss_summary) = self._encoder_decoder_optimizer()
         self._finish_init()
 
     def train(self, training_corpus, sample_grammar, train_test_split=None):
         self._train(
-            self.tf_extrapolator_train_op,
-            [self.tf_extrapolator_lexical_loss_summary, self.tf_extrapolator_logical_loss_summary],
+            self.tf_train_op,
+            [self.tf_kl_loss_summary, self.tf_lexical_loss_summary],
             training_corpus, sample_grammar, train_test_split)
 
     def name(self):
-        return super().name()+"_"+"-".join(str(n) for n in self.state_size_per_layer)
+        return super().name()+"_emb{}_fw{}_bw{}_de{}_drop{}".format(
+            self.embedding_size,
+            "-".join(str(n) for n in self.encoder_fw_state_size_per_layer),
+            "-".join(str(n) for n in self.encoder_bw_state_size_per_layer),
+            "-".join(str(n) for n in self.decoder_state_size_per_layer),
+            int(self.decoder_input_keep_prob*100)
+        )
 
     def info(self):
         result = super().info()
-        result["state_size_per_layer"] = self.state_size_per_layer
+        result["encoder_fw_state_size_per_layer"] = self.encoder_fw_state_size_per_layer
+        result["encoder_bw_state_size_per_layer"] = self.encoder_bw_state_size_per_layer
+        result["decoder_state_size_per_layer"] = self.decoder_state_size_per_layer
+        result["embedding_size"] = self.embedding_size
+        result["decoder_input_keep_prob"] = self.decoder_input_keep_prob
         return result
 
-    def embed(self, embedding_featureset, string_to_embed):
-        """
-        Use this method to predict ranked postfixes for the given prefix with this model.
-        :param num_chars_to_predict: The number of characters to predict.
-        :param embedding_featureset: This corpus indicates the set of tokens that may be predicted, as well
-         as the (char, embedding) mappings and terminal token classes.
-        :param prefix_chars: The actual characters of the prefix to be completed.
-        :param prefix_classes: The token classes of the characters in prefix_chars. This must be a coma-separated
-         array that is exactly as long as `prefix_chars`. Each entry E_i must be the decimal numeric id of the
-         class of character C_i.
-        :return: A list of length self.num_beams like
-         `[ [postfix_chars as str, postfix_classes as tuple, postfix_probability]+ ]`,
-         where len(postfix_classes) = len(postfix_chars) and len(postfix_classes) <= num_chars_to_predict.
-         E.g. if num_chars_to_predict=2, charset={a,b,c}, classes={0,1,2}, num_beams=2, a prediction may look like:
-
-         [ ["aabb", [1, 1, 2, 2], .9)
-           ["abab", [1, 1, 2, 2], .1) ]
-
-         Note: A postfix length may stop short of num_chars_to_predict if it encounters EOL.
-        """
+    def encode(self):
         pass
 
     # ----------------------[ Private Methods ]----------------------
@@ -120,12 +114,9 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
                 time_major=False)
 
             # -- Forward pass
-            tf_discriminator_forward_cell = tf.contrib.rnn.OutputProjectionWrapper(
-                tf.contrib.rnn.MultiRNNCell([
+            tf_discriminator_forward_cell = tf.contrib.rnn.MultiRNNCell([
                     tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                    self.encoder_fw_state_size_per_layer
-                ]),
-                self.num_logical_features)
+                    self.encoder_fw_state_size_per_layer])
             # -- Create a dynamically unrolled RNN to produce the character category discrimination
             tf_logical_predictions_per_timestep_per_batch, tf_final_fw_state_tuple_stack = tf.nn.dynamic_rnn(
                 cell=tf_discriminator_forward_cell,
@@ -169,21 +160,60 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
 
     def _latent_to_stepwise_decoder(self):
         """
-        :return: tf_decoder_initial_state
+        :return: tf_eol_char_id, tf_unk_char_id, tf_start_char_id, tf_correct_decoder_output, tf_stepwise_decoder_output
         """
         with tf.variable_scope('latent_to_decoder'):
             concat_state_size = sum(n*2 for n in self.decoder_state_size_per_layer)
-            w = tf.get_variable("w", [self.embedding_size, concat_state_size], dtype=tf.float32)
-            b = tf.get_variable("b", [concat_state_size], dtype=tf.float32)
-            decoder_initial_state = self._prelu(tf.matmul(self.tf_latent_vector, w) + b)
-            decoder_initial_state_tuple_list, pos_in_state = [], 0
+            tf_w = tf.get_variable("w", [self.embedding_size, concat_state_size], dtype=tf.float32)
+            tf_b = tf.get_variable("b", [concat_state_size], dtype=tf.float32)
+            tf_decoder_initial_state = self._prelu(tf.matmul(self.tf_latent_vector, tf_w) + tf_b)
+            tf_decoder_initial_state_tuple_list, pos_in_state = [], 0
             for state_size in self.decoder_state_size_per_layer:
-                decoder_initial_state += [tf.contrib.rnn.LSTMStateTuple(
-                    decoder_initial_state[pos_in_state:pos_in_state+state_size],
-                    decoder_initial_state[pos_in_state+state_size:pos_in_state+2*state_size])]
+                tf_decoder_initial_state_tuple_list += [tf.contrib.rnn.LSTMStateTuple(
+                    tf_decoder_initial_state[pos_in_state:pos_in_state+state_size],
+                    tf_decoder_initial_state[pos_in_state+state_size:pos_in_state+2*state_size])]
                 pos_in_state += state_size*2  # *2 for state+mem
-        with tf.variable_scope('stepwise_decoder'):
 
+        with tf.variable_scope('stepwise_decoder'):
+            tf_eol_char_id = tf.placeholder(tf.int32)
+            tf_unk_char_id = tf.placeholder(tf.int32)
+            tf_start_char_id = tf.placeholder(tf.int32)
+            tf_correct_decoder_output = tf.placeholder(
+                dtype=tf.float32,
+                shape=(-1, self.featureset.num_lexical_features()))
+            tf_decoder_cell = tf.contrib.rnn.OutputProjectionWrapper(
+                tf.contrib.rnn.MultiRNNCell([
+                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                    self.decoder_state_size_per_layer]),
+                self.featureset.num_lexical_features())
+            tf_max_decoder_steps = tf.shape(tf_correct_decoder_output)[0]
+            tf_t = tf.constant(0)
+            tf_stepwise_decoder_output = tf.TensorArray(tf.float32, size=1, dynamic_size=True)
+            tf_prev_output = tf.one_hot(tf_start_char_id, depth=self.featureset.num_lexical_features())
+
+            def should_continue(t, prev_output, *_):
+                return tf.logical_and(
+                    t < tf_max_decoder_steps,
+                    prev_output != tf.one_hot(tf_eol_char_id, depth=self.featureset.num_lexical_features()))
+
+            def iteration(t, prev_output, state, stepwise_decoder_output):
+                input_keep_prob = tf.random_uniform([], .0, 1.)
+                prev_output = tf.cond(
+                    input_keep_prob > self.decoder_input_keep_prob,
+                    lambda: tf.one_hot(tf_unk_char_id, depth=self.num_lexical_features()),
+                    lambda: prev_output)
+                prev_output, state = tf_decoder_cell(state=state, inputs=prev_output)
+                stepwise_decoder_output = stepwise_decoder_output.write(t, prev_output)
+                prev_output = tf_correct_decoder_output[t]
+                return t+1, prev_output, state, stepwise_decoder_output
+
+            _, _, _, tf_stepwise_decoder_output = tf.while_loop(
+                should_continue,
+                iteration,
+                [tf_t, tf_prev_output, tf_decoder_initial_state_tuple_list, tf_stepwise_decoder_output])
+
+        tf_stepwise_decoder_output = tf_stepwise_decoder_output.stack()
+        return tf_eol_char_id, tf_unk_char_id, tf_start_char_id, tf_correct_decoder_output, tf_stepwise_decoder_output
 
     def _encoder_decoder_optimizer(self):
         """
@@ -195,8 +225,8 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
 
             # -- Calculate the average cross entropy for the lexical classes per timestep
             tf_lexical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, :, :self.num_lexical_features],
-                logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :, :self.num_lexical_features],
+                labels=self.tf_correct_decoder_output,
+                logits=self.tf_stepwise_decoder_output,
                 dim=2))
 
             # -- Create summaries for TensorBoard
@@ -205,10 +235,10 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
             # -- Define training op
             optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
             tf_train_op = tf.contrib.layers.optimize_loss(
-                loss=tf_lexical_loss,
+                loss=tf_lexical_loss + self.tf_kl_loss,
                 global_step=global_step,
                 learning_rate=None,
                 summaries=[],
                 optimizer=optimizer)
 
-        return tf_train_op, tf_logical_loss_summary, tf_lexical_loss_summary
+        return tf_train_op, tf_lexical_loss_summary

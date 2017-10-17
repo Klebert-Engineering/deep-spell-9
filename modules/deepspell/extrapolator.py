@@ -298,6 +298,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
             _, _, _, tf_beam_probs, tf_stepwise_beam_output, _ = tf.while_loop(  # , tf_stepwise_debug_output
                 should_continue, iteration,
+                back_prop=False,
                 loop_vars=[
                     tf_initial_t,
                     tf_beam_state_stack,
