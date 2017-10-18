@@ -145,7 +145,7 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
                 })
             assert len(embeddings) == len(batch_tokens)
             for embedding, token in zip(embeddings, batch_tokens):
-                print(token.string, ":", embedding)
+                # print(token.string, ":", embedding)
                 result_vectors.append((token.string, embedding))
         print("")
         file_path = os.path.join(output_path, corpus_to_encode.name+".vectors.bin")
