@@ -8,6 +8,7 @@ import random
 import json
 import math
 import numpy as np
+import sys
 
 # ==========================[ Local Imports ]========================
 
@@ -205,32 +206,46 @@ class DSGrammar:
         """
         Corrupts a string with deletions, switches, insertions and substitutions `n` times,
         where `n` is the floor of a number that is drawn from the normal distribution given by
-        `self.corruption_dist_mean` and `self.corruption_dist_stddev`.
+        `self.corruption_dist_mean` and `self.corruption_dist_stddev`. Note, that `n` is also
+        capped by `self.max_corruptions()`.
         :param string_to_corrupt: The string that should be corrupted.
         :return: The corrupted string.
         """
         def delete_char(s):
+            # sys.stdout.write(" del")
             pos = int(math.floor(random.uniform(0, len(s))))
             return s[:pos]+s[pos+1:]
 
         def subst_char(s):
+            # sys.stdout.write(" subst")
             pos = int(math.floor(random.uniform(0, len(s))))
             ch = chr(ord('a') + int(random.uniform(0, 26)))
             return s[:pos] + ch + s[pos+1:]
 
         def switch_char(s):
+            # sys.stdout.write(" switch")
             pos1 = int(math.floor(random.uniform(0, len(s)-1)))
             pos2 = int(math.floor(random.uniform(pos1+1, len(s))))
             return s[:pos1] + s[pos2] + s[pos1+1:pos2] + s[pos1] + s[pos2+1:]
 
         def insert_char(s):
+            # sys.stdout.write(" ins")
             pos = int(math.floor(random.uniform(0, len(s)+1)))
             ch = chr(ord('a') + int(random.uniform(0, 26)))
             return s[:pos] + ch + s[pos:]
 
-        n = int(np.floor(np.random.normal(self.corruption_dist_mean, self.corruption_dist_stddev)))
+        n = min(
+            self.max_corruptions(),
+            int(np.floor(np.random.normal(self.corruption_dist_mean, self.corruption_dist_stddev))))
+        # print("Corrupting", string_to_corrupt, "...", end="")
         for i in range(n):
+            # don't corrupt below 2 characters
+            if len(string_to_corrupt) < 3:
+                break
             corruption_function = random.choice((delete_char, subst_char, switch_char, insert_char))
             string_to_corrupt = corruption_function(string_to_corrupt)
-
+        # print(" =>", string_to_corrupt)
         return string_to_corrupt
+
+    def max_corruptions(self):
+        return int(self.corruption_dist_mean + self.corruption_dist_stddev*5.)

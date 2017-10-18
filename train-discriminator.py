@@ -10,7 +10,7 @@ from deepspell.discriminator import DSLstmDiscriminator
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na-min")
 training_corpus = DSCorpus("corpora/deepspell_data_north_america_nozip_v2.tsv", "na", lowercase=True)
-training_grammar = DSGrammar("corpora/grammar.json", training_corpus.featureset)
+training_grammar = DSGrammar("corpora/grammar-address-na.json", training_corpus.featureset)
 model = DSLstmDiscriminator(
     "models", "logs",
     features=training_corpus.featureset,

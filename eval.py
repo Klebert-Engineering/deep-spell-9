@@ -30,7 +30,7 @@ arg_parser.add_argument(
     help="Path to the model JSON descriptor that should be used for completion generation.")
 arg_parser.add_argument(
     "--grammar",
-    default="corpora/grammar.json",
+    default="corpora/grammar-address-na.json",
     help="Path to the JSON descriptor for the grammar that should be used for sample gen.")
 arg_parser.add_argument(
     "-c", "--completions",
