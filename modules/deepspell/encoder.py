@@ -4,10 +4,14 @@
 
 import tensorflow as tf
 import numpy as np
+import pickle
+import os
+import codecs
 
 # ============================[ Local Imports ]==========================
 
 from . import predictor
+from . import corpus
 from . import featureset
 
 # =======================[ LSTM Extrapolator Model ]=====================
@@ -106,8 +110,45 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
         result["current_kl_rate"] = self.current_kl_rate
         return result
 
-    def encode(self):
-        pass
+    def encode(self, corpus_to_encode, batch_size, output_path):
+        assert isinstance(corpus_to_encode, corpus.DSCorpus)
+        result_vectors = []
+        tokens = [
+            token
+            for class_id, tokens in corpus_to_encode.data.items()
+            for token in tokens]
+        total = len(tokens)
+        done = 0
+        print("")
+        while tokens:
+            batch_tokens = tokens[:batch_size]
+            tokens = tokens[batch_size:]
+            done += len(batch_tokens)
+            super()._print_progress(done, total)
+            # -- len(token.string)+1 to account for EOL
+            max_token_length = max(len(token.string)+1 for token in batch_tokens)
+            batch_embedding_sequences, batch_lengths, _, _ = zip(*(
+                self.featureset.embed_tokens(
+                    [token],
+                    max_token_length,
+                    -1,
+                    corruption_grammar=None,
+                    embed_with_class=False)
+                for token in batch_tokens))
+            with self.graph.as_default():
+                embeddings = self.session.run(self.tf_latent_means, feed_dict={
+                    self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                    self.tf_timesteps_per_batch: batch_lengths
+                })
+            assert len(embeddings) == len(batch_tokens)
+            for embedding, token in zip(embeddings, batch_tokens):
+                print(token.string, ":", embedding)
+                result_vectors.append((token.string, embedding))
+        print("")
+        file_path = os.path.join(output_path, corpus_to_encode.name+".vectors.bin")
+        print("Dumping encoded tokens to file '{}'".format(file_path))
+        with codecs.open(file_path, "w") as dump_file:
+            pickle.dump(result_vectors, dump_file)
 
     # ----------------------[ Private Methods ]----------------------
 

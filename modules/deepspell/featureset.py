@@ -38,7 +38,10 @@ class DSFeatureSet:
         self.class_ids = classes
         self.charset = charset
         self.charset_unk_index = charset.index(unk_char)
-        self.charset_bol_index = charset.index(bol_char)
+        if bol_char in self.charset:
+            self.charset_bol_index = charset.index(bol_char)
+        else:
+            self.charset_bol_index = 0
         self.charset_eol_index = charset.index(eol_char)
         self.charset_index = defaultdict(lambda: self.charset_unk_index, ((c, i) for i, c in enumerate(charset)))
         self.bol_char = bol_char
