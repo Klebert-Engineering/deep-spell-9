@@ -14,16 +14,17 @@ training_grammar = DSGrammar("corpora/grammar-encoder.json", training_corpus.fea
 model = DSVariationalLstmAutoEncoder(
     "models", "logs",
     features=training_corpus.featureset,
-    learning_rate=0.005,
+    learning_rate=0.003,
     learning_rate_decay=0.5,
     training_epochs=5,
-    batch_size=4096,
-    encoder_fw_state_size_per_layer=[128],
-    encoder_bw_state_size_per_layer=[128],
-    decoder_state_size_per_layer=[128],
+    batch_size=2048,
+    encoder_fw_state_size_per_layer=[256],
+    encoder_bw_state_size_per_layer=[256],
+    decoder_state_size_per_layer=[256, 256],
     embedding_size=8,
-    decoder_input_keep_prob=.8,
-    kl_rate_rise_iterations=4000
+    decoder_input_keep_prob=.9,
+    kl_rate_rise_iterations=2000,
+    kl_rate_rise_threshold=1000
 )
 
 model.train(training_corpus, training_grammar)

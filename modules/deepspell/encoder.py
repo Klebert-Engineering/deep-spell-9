@@ -37,6 +37,7 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
         self.embedding_size = kwargs.pop("embedding_size", 8)
         self.decoder_input_keep_prob = kwargs.pop("decoder_input_keep_prob", .75)
         self.kl_rate_rise_iterations = kwargs.pop("kl_rate_rise_iterations", 2000)
+        self.kl_rate_rise_threshold = kwargs.pop("kl_rate_rise_threshold", 1000)
         self.current_kl_rate = kwargs.pop("current_kl_rate", .0)
 
         # -- Create Tensor Flow compute graph nodes
@@ -108,6 +109,8 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
         result["embedding_size"] = self.embedding_size
         result["decoder_input_keep_prob"] = self.decoder_input_keep_prob
         result["current_kl_rate"] = self.current_kl_rate
+        result["kl_rate_rise_iterations"] = self.kl_rate_rise_iterations
+        result["kl_rate_rise_threshold"] = self.kl_rate_rise_threshold
         return result
 
     def encode(self, corpus_to_encode, batch_size, output_path):
@@ -142,7 +145,7 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
                 })
             assert len(embeddings) == len(batch_tokens)
             for embedding, token in zip(embeddings, batch_tokens):
-                print(token.string, ":", embedding)
+                # print(token.string, ":", embedding)
                 result_vectors.append((token.string, embedding))
         print("")
         file_path = os.path.join(output_path, corpus_to_encode.name+".vectors.bin")
@@ -153,7 +156,12 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
     # ----------------------[ Private Methods ]----------------------
 
     def _next_kl_rate(self):
-        self.current_kl_rate = min(1.0, self.current_kl_rate+1.0/float(self.kl_rate_rise_iterations))
+        if self.iteration < self.kl_rate_rise_threshold:
+            self.current_kl_rate = .0
+        else:
+            self.current_kl_rate = min(
+                1.0,
+                (self.iteration-self.kl_rate_rise_threshold)/float(self.kl_rate_rise_iterations))
         return self.current_kl_rate
 
     @staticmethod
