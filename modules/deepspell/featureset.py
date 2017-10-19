@@ -64,14 +64,29 @@ class DSFeatureSet:
         :return: True for compatibility, False otherwise.
         """
         assert isinstance(other_featureset, DSFeatureSet)
-        return (
-            self.charset == other_featureset.charset and
-            self.eol_char == other_featureset.eol_char and
-            self.bol_char == other_featureset.bol_char and
-            self.unk_char == other_featureset.unk_char and
-            self.eol_class_name == other_featureset.eol_class_name and
-            (not self.class_ids or self.class_ids == other_featureset.class_ids)
-        )
+        if self.charset != other_featureset.charset:
+            print("Warning: incompatible featuresets: charsets misaligned.")
+            return False
+        if self.eol_char != other_featureset.eol_char:
+            print("Warning: incompatible featuresets: eol misaligned.")
+            return False
+        if self.bol_char != other_featureset.bol_char:
+            print("Warning: incompatible featuresets: bol misaligned.")
+            return False
+        if self.unk_char != other_featureset.unk_char:
+            print("Warning: incompatible featuresets: unk misaligned.")
+            return False
+        if self.eol_class_name != other_featureset.eol_class_name:
+            print("Warning: incompatible featuresets: eol-class-name misaligned.")
+            return False
+        if self.class_ids and self.class_ids != other_featureset.class_ids:
+            print("Warning: incompatible featuresets: class-ids misaligned: {} vs {}.".format(
+                dict(self.class_ids),
+                dict(other_featureset.class_ids)
+            ))
+            return False
+        return True
+
 
     def adapt_logical_features(self, other_featureset):
         """

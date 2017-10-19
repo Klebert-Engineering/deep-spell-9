@@ -7,6 +7,7 @@ import numpy as np
 import pickle
 import os
 import codecs
+import base64
 
 # ============================[ Local Imports ]==========================
 
@@ -122,36 +123,42 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
             for token in tokens]
         total = len(tokens)
         done = 0
-        print("")
-        while tokens:
-            batch_tokens = tokens[:batch_size]
-            tokens = tokens[batch_size:]
-            done += len(batch_tokens)
-            super()._print_progress(done, total)
-            # -- len(token.string)+1 to account for EOL
-            max_token_length = max(len(token.string)+1 for token in batch_tokens)
-            batch_embedding_sequences, batch_lengths, _, _ = zip(*(
-                self.featureset.embed_tokens(
-                    [token],
-                    max_token_length,
-                    -1,
-                    corruption_grammar=None,
-                    embed_with_class=False)
-                for token in batch_tokens))
-            with self.graph.as_default():
-                embeddings = self.session.run(self.tf_latent_means, feed_dict={
-                    self.tf_corrupt_encoder_input: batch_embedding_sequences,
-                    self.tf_timesteps_per_batch: batch_lengths
-                })
-            assert len(embeddings) == len(batch_tokens)
-            for embedding, token in zip(embeddings, batch_tokens):
-                # print(token.string, ":", embedding)
-                result_vectors.append((token.string, embedding))
-        print("")
-        file_path = os.path.join(output_path, corpus_to_encode.name+".vectors.bin")
+
+        # -- Find free output path
+        file_path = os.path.join(output_path, corpus_to_encode.name+".{}.vectors.bin")
+        i = 0
+        while os.path.exists(file_path.format(i)):
+            i += 1
+        file_path = file_path.format(i)
         print("Dumping encoded tokens to file '{}'".format(file_path))
-        with codecs.open(file_path, "w") as dump_file:
-            pickle.dump(result_vectors, dump_file)
+        with codecs.open(file_path, "wb") as dump_file:
+            print("")
+            while tokens:
+                batch_tokens = tokens[:batch_size]
+                tokens = tokens[batch_size:]
+                done += len(batch_tokens)
+                super()._print_progress(done, total)
+                # -- len(token.string)+1 to account for EOL
+                max_token_length = max(len(token.string)+1 for token in batch_tokens)
+                batch_embedding_sequences, batch_lengths, _, _ = zip(*(
+                    self.featureset.embed_tokens(
+                        [token],
+                        max_token_length,
+                        -1,
+                        corruption_grammar=None,
+                        embed_with_class=False)
+                    for token in batch_tokens))
+                with self.graph.as_default():
+                    embeddings = self.session.run(self.tf_latent_means, feed_dict={
+                        self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                        self.tf_timesteps_per_batch: batch_lengths
+                    })
+                assert len(embeddings) == len(batch_tokens)
+                for embedding, token in zip(embeddings, batch_tokens):
+                    # print(token.string, ":", embedding)
+                    dump_file.write(codecs.encode(token.string)+b"\t")
+                    dump_file.write(base64.b64encode(embedding.tostring())+b"\n")
+            print("")
 
     # ----------------------[ Private Methods ]----------------------
 
