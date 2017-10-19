@@ -38,4 +38,4 @@ encoder_model = DSVariationalLstmAutoEncoder(args.encoder, "logs")
 # assert corpus_to_encode.featureset.is_compatible(encoder_model.featureset)
 featureset = encoder_model.featureset
 
-encoder_model.encode(corpus_to_encode, 16384, args.output_path)
+encoder_model.encode_corpus(corpus_to_encode, 16384, args.output_path)

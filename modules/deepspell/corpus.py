@@ -4,8 +4,10 @@
 
 import codecs
 from collections import defaultdict
+from scipy.spatial import cKDTree
 import random
 import numpy as np
+import base64
 
 # ==========================[ Local Imports ]========================
 
@@ -154,3 +156,24 @@ class DSCorpus:
             len(tokens) - 1 +                             # White space
             1                                             # End-of-line
         )
+
+
+# =========================[ DSEncodedCorpus ]========================
+
+class DSEncodedCorpus:
+
+    def __init__(self, path):
+        self.tokens = []
+        self.codes = []
+        print("Loading embedded corpus ...")
+        with codecs.open(path, "rb") as in_file:
+            for line in in_file:
+                token, code = line.strip().split(b"\t")
+                self.tokens.append(codecs.decode(token))
+                self.codes.append(np.fromstring(base64.b64decode(code), dtype=np.float32))
+        print("  ... constructing k-D tree ...")
+        self.tree = cKDTree(self.codes)
+        print("  ... done.")
+
+    def lookup(self, vector_to_lookup, n=3):
+        return [self.tokens[i] for i in self.tree.query(vector_to_lookup, n)[1]]

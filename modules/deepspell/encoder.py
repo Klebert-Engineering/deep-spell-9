@@ -114,7 +114,16 @@ class DSVariationalLstmAutoEncoder(predictor.DSPredictor):
         result["kl_rate_rise_threshold"] = self.kl_rate_rise_threshold
         return result
 
-    def encode(self, corpus_to_encode, batch_size, output_path):
+    def encode(self, string):
+        with self.graph.as_default():
+            embeddings = self.session.run(self.tf_latent_means, feed_dict={
+                self.tf_corrupt_encoder_input: [
+                    self.featureset.embed_characters(string)[:, :self.featureset.num_lexical_features()]],
+                self.tf_timesteps_per_batch: [len(string)+1]
+            })
+            return embeddings[0]
+
+    def encode_corpus(self, corpus_to_encode, batch_size, output_path):
         assert isinstance(corpus_to_encode, corpus.DSCorpus)
         result_vectors = []
         tokens = [
