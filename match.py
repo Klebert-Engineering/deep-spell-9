@@ -27,6 +27,8 @@ Have fun!
 
 while True:
     user_command = input("> ")
+    if len(user_command) == 0:
+        continue
     if user_command == "q":
         exit(0)
     lookup_vec = encoder_model.encode(user_command)
