@@ -4,10 +4,15 @@
 
 import codecs
 from collections import defaultdict
-from scipy.spatial import cKDTree
 import random
 import numpy as np
 import base64
+try:
+    from scipy.spatial import cKDTree
+except ImportError:
+    print("WARNING: SciPy not installed!")
+    cKDTree = None
+    pass
 
 # ==========================[ Local Imports ]========================
 
@@ -172,8 +177,14 @@ class DSEncodedCorpus:
                 self.tokens.append(codecs.decode(token))
                 self.codes.append(np.fromstring(base64.b64decode(code), dtype=np.float32))
         print("  ... constructing k-D tree ...")
-        self.tree = cKDTree(self.codes)
+        if not cKDTree:
+            print("WARNING: SciPy not installed!")
+        else:
+            self.tree = cKDTree(self.codes)
         print("  ... done.")
 
     def lookup(self, vector_to_lookup, n=3):
+        if not self.tree:
+            print("WARNING: SciPy not installed!")
+            return []
         return [self.tokens[i] for i in self.tree.query(vector_to_lookup, n)[1]]
