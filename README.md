@@ -4,6 +4,10 @@ Repo for the DeepSpell project which enables AutoSuggest in NDS via deep neural 
 Dependencies
 ------------
 
+Mandatory:
 * tensorflow >=1.3
-* scipy
 * unidecode
+
+Optional:
+* scipy (for spell-checker)
+* pygtrie (for FTS5 baseline)
