@@ -145,12 +145,14 @@ class DSPredictor:
     # ----------------------[ Private Methods ]----------------------
 
     def _train(self,
-               train_op,
+               train_ops,
                summary_ops,
                training_corpus,
                sample_grammar,
                train_test_split,
-               min_sample_length_before_truncation=-1):
+               min_sample_length_before_truncation=-1,
+               feed_fn=None,
+               run_callback_fn=None):
 
         assert isinstance(training_corpus, corpus.DSCorpus)
         assert isinstance(sample_grammar, grammar.DSGrammar)
@@ -170,7 +172,9 @@ class DSPredictor:
             else:
                 print("No valid log dir issued. Log will not be written!")
 
-            ops = [train_op] + summary_ops
+            if not isinstance(train_ops, list):
+                train_ops = [train_ops]
+            ops = train_ops + summary_ops
             epoch_leftover_documents = None
             epoch_count = 0
             start_time = time.time()
@@ -179,6 +183,21 @@ class DSPredictor:
             num_samples_done = 0
             print_iterator_size = False
 
+            def default_feed_fn(epoch_it, learning_rate):
+                batch, lengths, epoch_it, *_ = training_corpus.next_batches_and_lengths(
+                    self.batch_size,
+                    sample_grammar,
+                    epoch_it,
+                    train_test_split,
+                    min_sample_length_before_truncation)
+                return {
+                    self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
+                    self.tf_timesteps_per_batch: lengths,
+                    self.tf_learning_rate: learning_rate
+                }, epoch_it
+            if not feed_fn:
+                feed_fn = default_feed_fn
+
             while epoch_count < self.training_epochs:
 
                 if not epoch_leftover_documents:
@@ -186,30 +205,24 @@ class DSPredictor:
                     num_samples_done = 0
                     print_iterator_size = True
 
-                batch, lengths, epoch_leftover_documents = training_corpus.get_batch_and_lengths(
-                    self.batch_size,
-                    sample_grammar,
-                    epoch_leftover_documents,
-                    train_test_split,
-                    min_sample_length_before_truncation)
+                feed, epoch_leftover_documents = feed_fn(epoch_leftover_documents, current_learning_rate)
 
                 if print_iterator_size:
                     sys.stdout.write("Created new randomized collection from {} samples. Now training ...\n  ".format(
-                        len(epoch_leftover_documents) + len(batch)))
+                        len(epoch_leftover_documents) + self.batch_size))
                     print_iterator_size = False
 
-                results = self.session.run(ops, feed_dict={
-                    self.tf_lexical_logical_embeddings_per_timestep_per_batch: batch,
-                    self.tf_timesteps_per_batch: lengths,
-                    self.tf_learning_rate: current_learning_rate
-                })
+                results = self.session.run(ops, feed_dict=feed)
+                if run_callback_fn:
+                    run_callback_fn(results)
 
                 if self.tf_summary_writer:
-                    for summary_value in results[1:]:
+                    for summary_value in results[len(train_ops):]:
                         self.tf_summary_writer.add_summary(summary_value, self.iteration)
                 self.iteration += 1
 
-                num_samples_done += len(batch)
+                # -- Note, that this will overshoot for the last batch. use with care.
+                num_samples_done += self.batch_size
                 self._print_progress(num_samples_done, num_samples_done + len(epoch_leftover_documents))
 
                 if not epoch_leftover_documents:
@@ -246,7 +259,7 @@ class DSPredictor:
     # -*- coding: utf-8 -*-
 
     @staticmethod
-    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
         """
         Call in a loop to create terminal progress bar
         @params:

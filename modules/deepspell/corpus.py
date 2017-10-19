@@ -4,8 +4,10 @@
 
 import codecs
 from collections import defaultdict
+from scipy.spatial import cKDTree
 import random
 import numpy as np
+import base64
 
 # ==========================[ Local Imports ]========================
 
@@ -24,7 +26,7 @@ class DSCorpus:
     # ---------------------[ Interface Methods ]---------------------
 
     def __init__(self, path, name, lowercase=False):
-        self.name = name
+        self.name = name+("-lower" if lowercase else "")
         # -- class_ids is a dictionary like { <class_name_string>: <class_id> }
         class_ids = defaultdict(lambda: len(class_ids))
         # -- data is a dictionary like: { <class_id>: [<FtsToken>] }
@@ -67,14 +69,29 @@ class DSCorpus:
             classes=class_ids,
             charset=featureset.DSFeatureSet.LOWER_CASE_CHARSET if lowercase else featureset.DSFeatureSet.FULL_CASE_CHARSET)
 
-    def get_batch_and_lengths(self,
-                              batch_size,
-                              sample_grammar,
-                              epoch_leftover_indices=None,
-                              train_test_split=None,
-                              min_num_chars_truncate=-1):
+    def next_batches_and_lengths(
+            self,
+            batch_size,
+            sample_grammar,
+            epoch_leftover_indices=None,
+            train_test_split=None,
+            min_num_chars_truncate=-1,
+            corrupt=False,
+            embed_with_class=True):
+
         """
-        Returns a new batch-first character-feature matrix like [batch_size][sample_length][char_features].
+        Returns four values in this order:
+        1. A new batch-first character-feature matrix like
+         [batch_size][aligned_sample_length][char_features].
+        2. A sample length vector like [actual_sample_length].
+        3. A corpus iterator which can be used as an argument value for `epoch_leftover_indices`.
+        4. If `corrupt` is true, then a second character-feature
+         matrix will be returned that is equal to the first,
+         except `sample_grammar.corrupt()` is applied to all samples.
+         Otherwise, the 4th return value is [None].
+        5. If `corrupt` is true, then a second sample length vector
+         per corrupted sample like [actual_sample_length] is returned.
+         Otherwise, the 5th return value is [None].
         :param batch_size: The number of sample sequences to return.
         :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.FtsGrammar.
         :param epoch_leftover_indices: The iterator to use for sample selection.
@@ -88,6 +105,11 @@ class DSCorpus:
          it may become one of {"Los ", "Los A", "Los An", .., "Los Angeles California"}.
          This is useful to train the discriminator network to recognize categories from incomplete samples.
          Truncation will be omitted entirely if min_num_chars_truncate<0.
+        :param corrupt: Flag to indicate whether corrupted versions of the "correct"
+         samples in return value 1/2 should be returned in parameter 4/5. The corruption
+         will be generated with `sample_grammar.corrupt()`.
+        :param embed_with_class: Flag to indicate whether the returned character feature embeddings should
+         also contain logical features, or lexical features only.
         """
         assert (isinstance(sample_grammar, grammar.DSGrammar))
         # Make sure that training document order is randomized
@@ -105,14 +127,21 @@ class DSCorpus:
             sample_grammar.random_phrase_with_token(self.data[token_id[0]][token_id[1]])
             for token_id in batch_token_indices]
         # Find the longest phrase, such that all lines in the output matrix can be length-aligned
-        batch_lengths = np.asarray([
-            self._token_sequence_length(phrase_tokens)
-            for phrase_tokens in batch_phrases])
-        max_phrase_length = max(batch_lengths)
-        batch_embedding_sequences = np.asarray([
-            self.featureset.embed_tokens(phrase_tokens, max_phrase_length, min_num_chars_truncate)
-            for phrase_tokens in batch_phrases], np.float32)
-        return batch_embedding_sequences, batch_lengths, epoch_leftover_indices
+        max_phrase_length = max(self._token_sequence_length(phrase_tokens) for phrase_tokens in batch_phrases)
+        batch_embedding_sequences, batch_lengths, corrupted_batch_embedding_sequences, corrupted_batch_lengths = zip(*(
+            self.featureset.embed_tokens(
+                phrase_tokens,
+                max_phrase_length,
+                min_num_chars_truncate,
+                corruption_grammar=(sample_grammar if corrupt else None),
+                embed_with_class=embed_with_class)
+            for phrase_tokens in batch_phrases))
+        return (
+            np.asarray(batch_embedding_sequences, dtype=np.float32),
+            np.asarray(batch_lengths, dtype=np.float32),
+            epoch_leftover_indices,
+            np.asarray(corrupted_batch_embedding_sequences, dtype=np.float32),
+            np.asarray(corrupted_batch_lengths, dtype=np.float32))
 
     @staticmethod
     def _token_sequence_length(tokens):
@@ -127,3 +156,24 @@ class DSCorpus:
             len(tokens) - 1 +                             # White space
             1                                             # End-of-line
         )
+
+
+# =========================[ DSEncodedCorpus ]========================
+
+class DSEncodedCorpus:
+
+    def __init__(self, path):
+        self.tokens = []
+        self.codes = []
+        print("Loading embedded corpus ...")
+        with codecs.open(path, "rb") as in_file:
+            for line in in_file:
+                token, code = line.strip().split(b"\t")
+                self.tokens.append(codecs.decode(token))
+                self.codes.append(np.fromstring(base64.b64decode(code), dtype=np.float32))
+        print("  ... constructing k-D tree ...")
+        self.tree = cKDTree(self.codes)
+        print("  ... done.")
+
+    def lookup(self, vector_to_lookup, n=3):
+        return [self.tokens[i] for i in self.tree.query(vector_to_lookup, n)[1]]

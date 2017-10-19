@@ -1,0 +1,33 @@
+{
+    "root-nonterminal": "single-encoder-token",
+    "rules":
+    [
+        {
+            "class": "single-encoder-token",
+            "type": "random-sequence",
+            "symbols":
+            [
+                {
+                    "class": "COUNTRY",
+                    "prior": 0.0
+                },
+                {
+                    "class": "STATE",
+                    "prior": 0.0
+                },
+                {
+                    "class": "CITY",
+                    "prior": 0.0
+                },
+                {
+                    "class": "ROAD",
+                    "prior": 0.0
+                }
+            ]
+        }
+    ],
+    "corruption": {
+        "stddev": 0.5,
+        "mean": 0.75
+    }
+}

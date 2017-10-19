@@ -12,6 +12,7 @@ from deepspell.corpus import DSCorpus
 from deepspell.grammar import DSGrammar
 from deepspell.extrapolator import DSLstmExtrapolator
 from deepspell.discriminator import DSLstmDiscriminator
+from deepspell.baseline import DSFts5BaselineCompleter
 
 arg_parser = argparse.ArgumentParser("NDS AutoCompletion Quality Evaluator")
 arg_parser.add_argument(
@@ -23,14 +24,25 @@ arg_parser.add_argument(
     default="models/deepsp_discr-v1_na_lr003_dec50_bat3072_fw128-128_bw128.json",
     help="Path to the model JSON descriptor that should be used for class discrimination.")
 arg_parser.add_argument(
+    "--no-discr",
+    dest="skip_discriminator",
+    default=False,
+    action="store_true",
+    help="Flag to indicate, whether the discriminator should be evaluated.")
+arg_parser.add_argument(
     "--extra",
     default="models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json",
     # "models/deepsp_extra-v1_na_lr003_dec50_bat4096_128-128.json"
     # "models/deepsp_extra-v2_na_lr003_dec50_bat3072_128-128-128.json"
     help="Path to the model JSON descriptor that should be used for completion generation.")
 arg_parser.add_argument(
+    "--baseline",
+    default=False,
+    action="store_true",
+    help="Use this flag in place of --extra if you wish to evaluate the baseline extrapolator.")
+arg_parser.add_argument(
     "--grammar",
-    default="corpora/grammar.json",
+    default="corpora/grammar-address-na.json",
     help="Path to the JSON descriptor for the grammar that should be used for sample gen.")
 arg_parser.add_argument(
     "-c", "--completions",
@@ -56,22 +68,31 @@ args = arg_parser.parse_args()
 
 print("Benchmarking FTS AutoCompleter... ")
 print("  ... discriminator: "+args.discr)
-print("  ... extrapolator:  "+args.extra)
+print("  ... extrapolator:  "+("FTS-5-BASELINE" if args.baseline else args.extra))
 print("  ... corpus:        "+args.corpus)
 print("  ... grammar:       "+args.grammar)
 print("=======================================================================")
 print("")
 
-training_corpus = DSCorpus(args.corpus, "na")
-extrapolator_model = DSLstmExtrapolator(args.extra, "logs")
-discriminator_model = DSLstmDiscriminator(args.discr, "logs")
-assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
-assert training_corpus.featureset.is_compatible(discriminator_model.featureset)
-featureset = extrapolator_model.featureset
+training_corpus = DSCorpus(args.corpus, "na", lowercase=True)
 training_grammar = DSGrammar(args.grammar, training_corpus.featureset)
+featureset = training_corpus.featureset
+
+if not args.skip_discriminator:
+    discriminator_model = DSLstmDiscriminator(args.discr, "logs")
+    # -- This is unfortunately necessary for some older pre-spellcheck models,
+    #  which do not carry the BOL char in their charset.
+    featureset.charset = discriminator_model.featureset.charset
+    assert training_corpus.featureset.is_compatible(discriminator_model.featureset)
+
+if args.baseline:
+    extrapolator_model = DSFts5BaselineCompleter(training_corpus)
+else:
+    extrapolator_model = DSLstmExtrapolator(args.extra, "logs")
+    assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
 
 
-def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
     """
     Call in a loop to create terminal progress bar
     @params:
@@ -171,19 +192,20 @@ for class_id, tokens in training_corpus.data.items():
         test_phrase = training_grammar.random_phrase_with_token(test_token)  # Get sample phrase
 
         # -- Evaluate discriminator
-        phrase_chars, phrase_classes, gold_completion = embed_truncated_token_sequence(test_phrase)
-        class_labels = discriminator_model.discriminate(featureset, phrase_chars)
-        class_labels = [featureset.class_ids[class_pd[0][0]] for class_pd in class_labels][:-1]
-        assert len(phrase_classes) == len(class_labels)
-        for gold_class, labeled_class in zip(phrase_classes, class_labels):
-            if gold_class == labeled_class:
-                benchmark_stats[gold_class].identified += 1
-                benchmark_stats[gold_class].correctly_identified += 1
-            else:
-                benchmark_stats[gold_class].identified += 1
-                benchmark_stats[gold_class].not_identified += 1
-                benchmark_stats[labeled_class].identified += 1
-                benchmark_stats[labeled_class].incorrectly_identified += 1
+        if not args.skip_discriminator:
+            phrase_chars, phrase_classes, gold_completion = embed_truncated_token_sequence(test_phrase)
+            class_labels = discriminator_model.discriminate(featureset, phrase_chars)
+            class_labels = [featureset.class_ids[class_pd[0][0]] for class_pd in class_labels][:-1]
+            assert len(phrase_classes) == len(class_labels)
+            for gold_class, labeled_class in zip(phrase_classes, class_labels):
+                if gold_class == labeled_class:
+                    benchmark_stats[gold_class].identified += 1
+                    benchmark_stats[gold_class].correctly_identified += 1
+                else:
+                    benchmark_stats[gold_class].identified += 1
+                    benchmark_stats[gold_class].not_identified += 1
+                    benchmark_stats[labeled_class].identified += 1
+                    benchmark_stats[labeled_class].incorrectly_identified += 1
 
         # -- Evaluate extrapolator
         for prefix_size in args.prefix_sizes:
@@ -196,6 +218,7 @@ for class_id, tokens in training_corpus.data.items():
             completion_stats[0] += len(gold_completion)
             best_completion_score = 0
             for completion, _, _ in completions[:args.completions]:
+                # print(completion, "completes", phrase_chars)
                 completion_score = 0
                 for gold_char, label_char in zip(gold_completion, completion):
                     if gold_char == label_char:

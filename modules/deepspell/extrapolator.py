@@ -21,7 +21,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
         """Documentation in base Model class"""
         super().__init__(
             name_scope="extrapolator",
-            version=2,
+            version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
             kwargs_to_update=kwargs)
@@ -298,6 +298,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
 
             _, _, _, tf_beam_probs, tf_stepwise_beam_output, _ = tf.while_loop(  # , tf_stepwise_debug_output
                 should_continue, iteration,
+                back_prop=False,
                 loop_vars=[
                     tf_initial_t,
                     tf_beam_state_stack,

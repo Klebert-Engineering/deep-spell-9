@@ -11,6 +11,7 @@ from . import predictor
 from . import corpus
 from . import featureset
 
+
 # ======================[ LSTM Discriminator Model ]=====================
 
 class DSLstmDiscriminator(predictor.DSPredictor):
@@ -23,7 +24,7 @@ class DSLstmDiscriminator(predictor.DSPredictor):
         """
         super().__init__(
             name_scope="discriminator",
-            version=2,
+            version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
             kwargs_to_update=kwargs)

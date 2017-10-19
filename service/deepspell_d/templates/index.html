@@ -148,6 +148,7 @@
         $('#query-input').keydown(function(e) {
             if(e.which === 9) {
                 $('#query-input')[0].value += bestSuggestion;
+                $('#query-input').trigger('input');
                 if (e.preventDefault)
                     e.preventDefault();
                 return false;

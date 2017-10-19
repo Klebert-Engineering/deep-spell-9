@@ -23,12 +23,13 @@ class DSFeatureSet:
       token type (like CITY, COUNTRY, ROAD etc.).
     """
 
-    LOWER_CASE_CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789-., /_$"
+    LOWER_CASE_CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789-., /_$^"
     FULL_CASE_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + LOWER_CASE_CHARSET
 
     def __init__(self,
                  classes=None,
                  charset=LOWER_CASE_CHARSET,
+                 bol_char="^",
                  eol_char="$",
                  unk_char="_",
                  eol_class_name="EOL"):
@@ -37,8 +38,13 @@ class DSFeatureSet:
         self.class_ids = classes
         self.charset = charset
         self.charset_unk_index = charset.index(unk_char)
+        if bol_char in self.charset:
+            self.charset_bol_index = charset.index(bol_char)
+        else:
+            self.charset_bol_index = 0
         self.charset_eol_index = charset.index(eol_char)
         self.charset_index = defaultdict(lambda: self.charset_unk_index, ((c, i) for i, c in enumerate(charset)))
+        self.bol_char = bol_char
         self.eol_char = eol_char
         self.unk_char = unk_char
         self.eol_class_name = eol_class_name
@@ -58,13 +64,29 @@ class DSFeatureSet:
         :return: True for compatibility, False otherwise.
         """
         assert isinstance(other_featureset, DSFeatureSet)
-        return (
-            self.charset == other_featureset.charset and
-            self.eol_char == other_featureset.eol_char and
-            self.unk_char == other_featureset.unk_char and
-            self.eol_class_name == other_featureset.eol_class_name and
-            (not self.class_ids or self.class_ids == other_featureset.class_ids)
-        )
+        if self.charset != other_featureset.charset:
+            print("Warning: incompatible featuresets: charsets misaligned.")
+            return False
+        if self.eol_char != other_featureset.eol_char:
+            print("Warning: incompatible featuresets: eol misaligned.")
+            return False
+        if self.bol_char != other_featureset.bol_char:
+            print("Warning: incompatible featuresets: bol misaligned.")
+            return False
+        if self.unk_char != other_featureset.unk_char:
+            print("Warning: incompatible featuresets: unk misaligned.")
+            return False
+        if self.eol_class_name != other_featureset.eol_class_name:
+            print("Warning: incompatible featuresets: eol-class-name misaligned.")
+            return False
+        if self.class_ids and self.class_ids != other_featureset.class_ids:
+            print("Warning: incompatible featuresets: class-ids misaligned: {} vs {}.".format(
+                dict(self.class_ids),
+                dict(other_featureset.class_ids)
+            ))
+            return False
+        return True
+
 
     def adapt_logical_features(self, other_featureset):
         """
@@ -83,6 +105,7 @@ class DSFeatureSet:
         return {
             "charset": self.charset,
             "classes": self.class_ids,
+            "bol_char": self.bol_char,
             "eol_char": self.eol_char,
             "unk_char": self.unk_char,
             "eol_class_name": self.eol_class_name
@@ -142,39 +165,79 @@ class DSFeatureSet:
             result.append(char_embedding)
         return np.asarray(result, np.float32)
 
-    def embed_tokens(self, token_list, length_to_align, min_chars_truncate):
+    def embed_tokens(self, token_list, length_to_align, min_chars_truncate, corruption_grammar=None, embed_with_class=True):
         """
-        Embeds a sequence of FtsToken instances into a 2D feature matrix
-        like [num_characters][total_num_features_per_character()].
+        Embeds a sequence of FtsToken instances into 2D feature matrices.
+        => Note, that applying both truncation and corruption is not yet supported.
+        :return: Returns four values:
+        1. A 2D charcter-embedding feature matrix of shape [length_to_align][total_num_features]
+        2. A scalar int with the true length of the sample
+        3. If corruption_grammar is not None:
+         A corrupted version of ret.val. (1) with ONLY LEXICAL FEATURES, None otherwise.
+        4. If corruption_grammar is not None:
+         A scalar int with the true length of the corrupted sample, otherwise None.
         """
-        result = []
+        result = []  # 1st return value
+        corrupted_result = None  # 3rd return value
+        true_corrupted_sample_length = None
         char_class_seq = [
             (char, token.id[0])
             for i, token in enumerate(token_list)
             for char in (" " if i > 0 else "")+token.string]
+        corrupted_char_class_seq = []
+        embedding_size = self.total_num_features_per_character() if embed_with_class else self.num_lexical_features()
 
-        if len(char_class_seq) > min_chars_truncate and min_chars_truncate >= 0:
-            truncation_point = (math.ceil(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate)) +
-                                min_chars_truncate)
+        if corruption_grammar:
+            assert min_chars_truncate < 0
+            corrupted_result = []
+            corrupted_char_class_seq = [
+                (char, token.id[0])
+                for i, token in enumerate(token_list)
+                for char in (" " if i > 0 else "")+corruption_grammar.corrupt(token.string)]
+        elif (len(char_class_seq) > min_chars_truncate) and (min_chars_truncate >= 0):
+            corrupted_char_class_seq = []
+            truncation_point = (
+                math.ceil(random.uniform(0., 1.) * (len(char_class_seq) - min_chars_truncate)) +
+                min_chars_truncate)
             char_class_seq = char_class_seq[:truncation_point]
 
         for char, token_class in char_class_seq:
-            # Iterate over all tokens. Prepend whitespace if necessary.
-            char_embedding = np.zeros(self.total_num_features_per_character())
-            # Set character label
-            char_embedding[self.charset_index[char]] = 1.
-            # Set class label
-            char_embedding[self.num_lexical_features() + token_class] = 1.
+            char_embedding = np.zeros(embedding_size)
+            char_embedding[self.charset_index[char]] = 1.  # Set character label
+            if embed_with_class:
+                char_embedding[self.num_lexical_features() + token_class] = 1.  # Set class label
             result.append(char_embedding)
+
+        if corrupted_result is not None:
+            for char, token_class in corrupted_char_class_seq:
+                char_embedding = np.zeros(embedding_size)
+                char_embedding[self.charset_index[char]] = 1.  # Set character label
+                if embed_with_class:
+                    char_embedding[self.num_lexical_features() + token_class] = 1.  # Set class label
+                corrupted_result.append(char_embedding)
 
         # -- Append single eol vector
         assert len(result) < length_to_align
-        char_embedding = np.zeros(self.total_num_features_per_character())
+        char_embedding = np.zeros(embedding_size)
         char_embedding[self.charset_eol_index] = 1.
-        char_embedding[self.num_lexical_features() + self.eol_class_id] = 1.
+        if embed_with_class:
+            char_embedding[self.num_lexical_features() + self.eol_class_id] = 1.
         result.append(char_embedding)
+        if corrupted_result:
+            char_embedding = np.zeros(embedding_size)
+            if embed_with_class:
+                char_embedding[self.charset_eol_index] = 1.
+            corrupted_result.append(char_embedding)
 
         # -- Align output length by padding with null vecs
-        while len(result) < length_to_align:
-            result.append(np.zeros(self.total_num_features_per_character()))
-        return np.asarray(result, np.float32)
+        true_sample_length = len(result)  # 2nd return value
+        result += [np.zeros(embedding_size)] * (length_to_align - len(result))
+        if corrupted_result:
+            true_corrupted_sample_length = len(corrupted_result)
+            corrupted_result += [np.zeros(embedding_size)] * \
+                (length_to_align - len(corrupted_result) + corruption_grammar.max_corruptions())
+        return (
+            np.asarray(result, np.float32),
+            true_sample_length,
+            np.asarray(corrupted_result, np.float32),
+            true_corrupted_sample_length)
