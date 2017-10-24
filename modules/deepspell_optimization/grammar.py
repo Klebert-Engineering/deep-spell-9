@@ -3,16 +3,16 @@
 # =============================[ Imports ]===========================
 
 import codecs
-from unidecode import unidecode
-import random
 import json
 import math
+import random
+
 import numpy as np
-import sys
+from unidecode import unidecode
 
 # ==========================[ Local Imports ]========================
 
-from . import featureset
+from deepspell import featureset
 
 # ============================[ Constants ]==========================
 

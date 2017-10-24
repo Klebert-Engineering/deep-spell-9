@@ -2,12 +2,13 @@
 
 # ===============================[ Imports ]=============================
 
-from pygtrie import CharTrie
 import sys
+
+from pygtrie import CharTrie
 
 # ============================[ Local Imports ]==========================
 
-from . import corpus
+from deepspell import corpus
 
 
 # =====================[ Baseline Extrapolator Model ]===================

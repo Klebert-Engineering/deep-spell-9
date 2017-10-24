@@ -1,17 +1,18 @@
 # (C) 2017 Klebert Engineering GmbH
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
-from deepspell.grammar import DSGrammar
 from deepspell.corpus import DSCorpus
-from deepspell.encoder import DSVariationalLstmAutoEncoder
+from deepspell_optimization.grammar import DSGrammar
+from deepspell_optimization.models.encoder import DSVariationalLstmAutoEncoderOptimizer
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "min", lowercase=True)
 training_corpus = DSCorpus("corpora/deepspell_data_north_america_nozip_v2.tsv", "na", lowercase=True)
 training_grammar = DSGrammar("corpora/grammar-encoder.json", training_corpus.featureset)
-model = DSVariationalLstmAutoEncoder(
+model = DSVariationalLstmAutoEncoderOptimizer(
     "models", "logs",
     features=training_corpus.featureset,
     learning_rate=0.003,

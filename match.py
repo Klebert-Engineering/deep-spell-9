@@ -1,12 +1,12 @@
 # (C) 2017 Klebert Engineering GmbH
 
-import sys
 import os
+import sys
 
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/modules")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/models")
 
 from deepspell.corpus import DSEncodedCorpus
-from deepspell.encoder import DSVariationalLstmAutoEncoder
+from deepspell.models.encoder import DSVariationalLstmAutoEncoder
 
 encoder_model = DSVariationalLstmAutoEncoder("models/deepsp_spell-v1_na-lower_lr003_dec50_bat3072_emb8_fw128-128_bw128_de128-128_drop80.json")
 match_corpus = DSEncodedCorpus("corpora/na-lower.6.vectors.bin")

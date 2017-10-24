@@ -2,11 +2,13 @@
 
 # =============================[ Imports ]===========================
 
-import codecs
-from collections import defaultdict
-import random
-import numpy as np
 import base64
+import codecs
+import random
+from collections import defaultdict
+
+import numpy as np
+
 try:
     from scipy.spatial import cKDTree
 except ImportError:
@@ -16,8 +18,8 @@ except ImportError:
 
 # ==========================[ Local Imports ]========================
 
-from . import grammar
-from . import featureset
+from deepspell import featureset
+from deepspell_optimization import grammar
 
 
 # ============================[ DSCorpus ]===========================
@@ -85,18 +87,15 @@ class DSCorpus:
             embed_with_class=True):
 
         """
-        Returns four values in this order:
-        1. A new batch-first character-feature matrix like
-         [batch_size][aligned_sample_length][char_features].
+        Returns five values in this order:
+        1. A new batch-first character-feature matrix like [batch_size][aligned_sample_length][char_features].
         2. A sample length vector like [actual_sample_length].
         3. A corpus iterator which can be used as an argument value for `epoch_leftover_indices`.
-        4. If `corrupt` is true, then a second character-feature
-         matrix will be returned that is equal to the first,
-         except `sample_grammar.corrupt()` is applied to all samples.
-         Otherwise, the 4th return value is [None].
-        5. If `corrupt` is true, then a second sample length vector
-         per corrupted sample like [actual_sample_length] is returned.
-         Otherwise, the 5th return value is [None].
+        4. If `corrupt` is true, then a second character-feature matrix will
+         be returned that is equal to the first, except `sample_grammar.corrupt()`
+         is applied to all samples. Otherwise, the 4th return value is [None].
+        5. If `corrupt` is true, then a second sample length vector per corrupted
+         sample like [actual_sample_length] is returned. Otherwise, the 5th return value is [None].
         :param batch_size: The number of sample sequences to return.
         :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.FtsGrammar.
         :param epoch_leftover_indices: The iterator to use for sample selection.

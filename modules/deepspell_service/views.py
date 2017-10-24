@@ -1,14 +1,15 @@
 
-import flask as fl
-import sys
 import os
+import sys
+
+import flask as fl
+
 from . import app
-sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../modules"))
 
 # ====================[ Local Imports ]===================
 
-from deepspell.extrapolator import DSLstmExtrapolator
-from deepspell.discriminator import DSLstmDiscriminator
+from deepspell.models.extrapolator import DSLstmExtrapolator
+from deepspell.models.discriminator import DSLstmDiscriminator
 
 # ====================[ Initialization ]==================
 

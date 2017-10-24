@@ -1,12 +1,12 @@
 # (C) 2017 Klebert Engineering GmbH
 
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
-from deepspell.corpus import DSCorpus
-from deepspell.extrapolator import DSLstmExtrapolator
-from deepspell.discriminator import DSLstmDiscriminator
+from deepspell.models.extrapolator import DSLstmExtrapolator
+from deepspell.models.discriminator import DSLstmDiscriminator
 
 extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat3192_128-128-128.json")
 # extrapolator_model = DSLstmExtrapolator("models/deepsp_extra-v2_na_lr003_dec50_bat2048_256-256.json", "logs")
