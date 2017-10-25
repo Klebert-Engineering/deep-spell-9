@@ -4,11 +4,10 @@
 
 import tensorflow as tf
 
+# ============================[ Local Imports ]==========================
+
 from deepspell.models import extrapolator
 from deepspell_optimization.models import optimizer
-
-
-# ============================[ Local Imports ]==========================
 
 
 # =======================[ LSTM Extrapolator Model ]=====================
@@ -25,7 +24,7 @@ class DSLstmExtrapolatorOptimizer(optimizer.DSModelOptimizerMixin, extrapolator.
             version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
-            args=kwargs)
+            args_to_update=kwargs)
         optimizer.DSModelOptimizerMixin.__init__(self, kwargs)
 
         # -- Create Tensor Flow compute graph nodes
@@ -81,11 +80,11 @@ class DSLstmExtrapolatorOptimizer(optimizer.DSModelOptimizerMixin, extrapolator.
             tf_lexical_loss_summary = tf.summary.scalar("lexical_loss", tf_lexical_loss)
 
             # -- Define training op
-            optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
+            tf_optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
             tf_train_op = tf.contrib.layers.optimize_loss(
                 loss=tf_logical_loss+tf_lexical_loss,
                 global_step=global_step,
                 learning_rate=None,
                 summaries=[],
-                optimizer=optimizer)
+                optimizer=tf_optimizer)
         return tf_train_op, tf_logical_loss_summary, tf_lexical_loss_summary

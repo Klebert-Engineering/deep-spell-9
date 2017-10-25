@@ -20,7 +20,7 @@ class DSModelBase:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, name_scope="unnamed", version=0, file_or_folder="", log_dir="", kwargs_to_update=None):
+    def __init__(self, name_scope="unnamed", version=0, file_or_folder="", log_dir="", args_to_update=None):
         """
         Instantiate or restore a Representation Model.
         :param name_scope: This will be included in the auto-generated model name,
@@ -30,7 +30,7 @@ class DSModelBase:
          should be restored, or to which it should be saved.
         :param log_dir: The directory which will be served by tensor board,
          where tensor flow logs for this model should be written to.
-        :param kwargs_to_update: [optional] A kwargs dictionary
+        :param args_to_update: [optional] A kwargs dictionary
          that should be updated with information stored in JSON-format
          under @file.
         """
@@ -40,17 +40,17 @@ class DSModelBase:
         self.tf_checkpoint_path = ""
         self.name_scope = name_scope
         self.version = version
-        if os.path.isfile(file_or_folder) and isinstance(kwargs_to_update, dict):
+        if os.path.isfile(file_or_folder) and isinstance(args_to_update, dict):
             print("Loading model '{}'...".format(file_or_folder))
             assert os.path.splitext(file_or_folder)[1] == ".json"
             with open(file_or_folder, "r") as json_file:
                 json_data = json.load(json_file)
                 for key, value in json_data.items():
-                    if key not in kwargs_to_update:
-                        kwargs_to_update[key] = value
+                    if key not in args_to_update:
+                        args_to_update[key] = value
         elif file_or_folder:
             assert os.path.isdir(file_or_folder)
-        featureset_params = kwargs_to_update.pop("features", None)
+        featureset_params = args_to_update.pop("features", None)
         if isinstance(featureset_params, dict):
             self.featureset = featureset.DSFeatureSet(**featureset_params)
         elif isinstance(featureset_params, featureset.DSFeatureSet):
@@ -85,16 +85,11 @@ class DSModelBase:
             self.session.run(self.tf_init_op)
             print("Compute Graph Initialized.")
             print(" Trainable Variables:", tf.trainable_variables())
-            if os.path.isfile(self.file):
-                # -- Restore existing model checkpoint
-                self.tf_checkpoint_path = os.path.splitext(self.file)[0]
-                if os.path.isfile(self.tf_checkpoint_path+".index"):
-                    print(" Restoring Tensor Flow Session from '{}'.".format(self.tf_checkpoint_path))
-                    self.tf_saver.restore(self.session, self.tf_checkpoint_path)
-            else:
-                assert os.path.isdir(self.file)
-                self.file = os.path.join(self.file, self._gen_name() + ".json")
-                self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+            # -- Restore existing model checkpoint
+            self.tf_checkpoint_path = os.path.splitext(self.file)[0]
+            if os.path.isfile(self.tf_checkpoint_path+".index"):
+                print(" Restoring Tensor Flow Session from '{}'.".format(self.tf_checkpoint_path))
+                self.tf_saver.restore(self.session, self.tf_checkpoint_path)
 
     # -*- coding: utf-8 -*-
 

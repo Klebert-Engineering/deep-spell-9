@@ -17,21 +17,23 @@ class DSLstmDiscriminator(modelbase.DSModelBase):
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, file_or_folder, log_dir="", **kwargs):
-        """Documentation in base Model class
-        :param total_features_per_character: The exact number of features per character,
-         which is required for the Graph construction.
-        """
+    def __init__(self, file_or_folder, log_dir="", args_to_update=None, **kwargs):
+        """Documentation in base Model class"""
+
+        if not args_to_update:
+            args_to_update = dict()
+        args_to_update.update(kwargs)
+
         super().__init__(
             name_scope="discriminator",
             version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
-            kwargs_to_update=kwargs)
+            args_to_update=args_to_update)
 
         # -- Read params
-        self.fw_state_size_per_layer = kwargs.pop("fw_state_size_per_layer", [128, 128])
-        self.bw_state_size_per_layer = kwargs.pop("bw_state_size_per_layer", [128, 128])
+        self.fw_state_size_per_layer = args_to_update.pop("fw_state_size_per_layer", [128, 128])
+        self.bw_state_size_per_layer = args_to_update.pop("bw_state_size_per_layer", [128, 128])
 
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():

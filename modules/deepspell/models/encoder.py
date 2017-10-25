@@ -6,7 +6,6 @@ import base64
 import codecs
 import os
 
-import numpy as np
 import tensorflow as tf
 
 # ============================[ Local Imports ]==========================
@@ -21,19 +20,24 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, file_or_folder, log_dir="", **kwargs):
+    def __init__(self, file_or_folder, log_dir="", args_to_update=None, **kwargs):
         """Documentation in base Model class"""
+
+        if not args_to_update:
+            args_to_update = dict()
+        args_to_update.update(kwargs)
+
         super().__init__(
             name_scope="spelling-encoder",
             version=1,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
-            kwargs_to_update=kwargs)
+            args_to_update=args_to_update)
 
         # -- Read params
-        self.encoder_fw_state_size_per_layer = kwargs.pop("encoder_fw_state_size_per_layer", [128, 128])
-        self.encoder_bw_state_size_per_layer = kwargs.pop("encoder_bw_state_size_per_layer", [128, 128])
-        self.embedding_size = kwargs.pop("embedding_size", 8)
+        self.encoder_fw_state_size_per_layer = args_to_update.pop("encoder_fw_state_size_per_layer", [128, 128])
+        self.encoder_bw_state_size_per_layer = args_to_update.pop("encoder_bw_state_size_per_layer", [128, 128])
+        self.embedding_size = args_to_update.pop("embedding_size", 8)
 
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():

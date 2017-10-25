@@ -9,12 +9,11 @@ import time
 
 import tensorflow as tf
 
+# ============================[ Local Imports ]==========================
+
 from deepspell import corpus
 from deepspell.models import modelbase
 from deepspell_optimization import grammar
-
-
-# ============================[ Local Imports ]==========================
 
 
 # ====================[ Abstract Predictor Interface ]===================
@@ -26,34 +25,41 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
         Utilize multiple inheritence with this class and a class derived from
         `modelbase.DSModelBase`. Therefore, modelbase.DSModelBase.__init__()
         is *explicitely not* called here, but should be called by the inherited
-        DSModelBase subclass which DSModelOptimizerMixin is mixed-in with.
+        <Model>, which DSModelOptimizerMixin is mixed-in with into the <ModelOptimizer>:
 
             ```
             (deepspell)
-                         /-----------------------\
-                         | DSModelBase           |
-                         \-----------------------/
-                              A            A
-                              |            |
-                              |          <Model>
-                              |            A
-                              |            |
-            - - - - - - - - - - - - - - - - - - - - - - - - -
-            (deepspell_optimization)       |
-                              |            |
-            /-------------------------\    |
-            | DSModelOptimizerMixin   |    |
-            \-------------------------/    |
-                              A            |
-                              |            |
-                             <ModelOptimizer>
+                                 /-----------------------\
+                                 | DSModelBase           |
+                                 | + graph: tf.Graph     |
+                                 | + finish_init_base()  |
+                                 \----A------------A-----/
+                                      '            | __init__
+                                      '       /---------\
+                                      '       | <Model> |
+                                      '       \----A----/
+                                      '            |
+            - - - - - - - - - - - - - ' - - - - - -|- - - - - - - - -
+            (deepspell_optimization)  '            |
+                                      '            |
+                    /-----------------'---------\  |
+                    | DSModelOptimizerMixin     |  |
+                    | + finish_init_base() {}   |  |
+                    | + finish_init_optimizer() |  |
+                    | + _train(...)             |  |
+                    \-----------------A---------/  |
+                                      | __init__#1 | __init__#0
+                                   /------------------\
+                                   | <ModelOptimizer> |
+                                   \------------------/
             ```
 
         Note:
             - It is important, that `DSModelOptimizerMixin` is the *first inherited class*.
               This is, because `DSModelOptimizerMixin` overwrites finish_init_base() from
               `DSModelBase` with an empty impl. Instead, it provides finish_init_optimizer().
-            - It is important, that `DSModelBase` is initialized before `DSModelOptimizerMixin`.
+            - It is important, that `DSModelBase` is initialized before `DSModelOptimizerMixin`,
+              because DSModelBase creates `self.graph`, which DSModelOptimizerMixin relies on.
               Therefore, *do not use super().__init__(...)*, but explicit `DSModelBase.__init__(...)` and
               `DSModelOptimizerMixin.__init__(...)` calls.
         """
@@ -63,6 +69,7 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
         self.learning_rate_decay = args.pop("learning_rate_decay", 0.7)
         self.training_epochs = args.pop("training_epochs", 10)
         self.training_history = args.pop("training_history", [])
+        self.tf_summary_writer = None
         with self.graph.as_default():
             self.tf_learning_rate = tf.placeholder(tf.float32)
 
@@ -122,6 +129,9 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
         pass
 
     def _finish_init_optimizer(self):
+        if os.path.isdir(self.file):
+            self.file = os.path.join(self.file, self.generate_name() + ".json")
+            self.tf_checkpoint_path = os.path.splitext(self.file)[0]
         modelbase.DSModelBase._finish_init_base(self)
 
     def _train(self,

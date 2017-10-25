@@ -17,18 +17,23 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, file_or_folder, log_dir="", **kwargs):
+    def __init__(self, file_or_folder, log_dir="", args_to_update=None, **kwargs):
         """Documentation in base Model class"""
+
+        if not args_to_update:
+            args_to_update = dict()
+        args_to_update.update(kwargs)
+
         super().__init__(
             name_scope="extrapolator",
             version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
-            kwargs_to_update=kwargs)
+            args_to_update=args_to_update)
 
         # -- Read params
-        self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
-        self.extrapolation_beam_count = kwargs.pop("extrapolation_beam_count", 5)
+        self.state_size_per_layer = args_to_update.pop("state_size_per_layer", [128, 128])
+        self.extrapolation_beam_count = args_to_update.pop("extrapolation_beam_count", 5)
 
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():

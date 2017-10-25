@@ -87,7 +87,6 @@ class DSFeatureSet:
             return False
         return True
 
-
     def adapt_logical_features(self, other_featureset):
         """
         Adapt class ids from other_featureset. This will assert for `self.is_compatible(other_featureset)`.
