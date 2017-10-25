@@ -1,5 +1,4 @@
 # (C) 2017 Klebert Engineering GmbH
 
-from . import *
-__all__ = ['corpus', 'extrapolator', 'discriminator', 'encoder', 'grammar', 'predictor', 'featureset']
+__all__ = ['inference', 'corpus', 'featureset', 'grammar', 'baseline']
 

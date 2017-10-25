@@ -1,17 +1,18 @@
 # (C) 2017 Klebert Engineering GmbH
 
-import sys
+import argparse
+import math
 import os
 import random
-import math
-import argparse
+import sys
 from collections import defaultdict
+
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
 from deepspell.corpus import DSCorpus
-from deepspell.grammar import DSGrammar
-from deepspell.extrapolator import DSLstmExtrapolator
-from deepspell.discriminator import DSLstmDiscriminator
+from deepspell_optimization.grammar import DSGrammar
+from deepspell.models.extrapolator import DSLstmExtrapolator
+from deepspell.models.discriminator import DSLstmDiscriminator
 from deepspell.baseline import DSFts5BaselineCompleter
 
 arg_parser = argparse.ArgumentParser("NDS AutoCompletion Quality Evaluator")

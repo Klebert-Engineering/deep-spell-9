@@ -2,5 +2,5 @@ corpora/deepspell*
 !corpora/deepspell_minimal.tsv
 .idea
 modules/deepspell/__pycache__/*
-modules/deepspell/__pycache__/*.pyc
-service/deepspell_d/__pycache__/*.pyc
+modules/deepspell_service/__pycache__/*
+modules/deepspell_optimization/__pycache__/*

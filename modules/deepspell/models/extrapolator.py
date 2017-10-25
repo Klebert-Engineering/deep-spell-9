@@ -2,33 +2,38 @@
 
 # ===============================[ Imports ]=============================
 
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
 
 # ============================[ Local Imports ]==========================
 
-from . import predictor
-from . import featureset
+from deepspell import featureset
+from deepspell.models import modelbase
 
 # =======================[ LSTM Extrapolator Model ]=====================
 
 
-class DSLstmExtrapolator(predictor.DSPredictor):
+class DSLstmExtrapolator(modelbase.DSModelBase):
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, file_or_folder, log_dir="", **kwargs):
+    def __init__(self, file_or_folder, log_dir="", args_to_update=None, **kwargs):
         """Documentation in base Model class"""
+
+        if not args_to_update:
+            args_to_update = dict()
+        args_to_update.update(kwargs)
+
         super().__init__(
             name_scope="extrapolator",
             version=3,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
-            kwargs_to_update=kwargs)
+            args_to_update=args_to_update)
 
         # -- Read params
-        self.state_size_per_layer = kwargs.pop("state_size_per_layer", [128, 128])
-        self.extrapolation_beam_count = kwargs.pop("extrapolation_beam_count", 5)
+        self.state_size_per_layer = args_to_update.pop("state_size_per_layer", [128, 128])
+        self.extrapolation_beam_count = args_to_update.pop("extrapolation_beam_count", 5)
 
         # -- Create Tensor Flow compute graph nodes
         with self.graph.as_default():
@@ -39,24 +44,7 @@ class DSLstmExtrapolator(predictor.DSPredictor):
              self.tf_eol_class_idx,
              self.tf_beam_probs,
              self.tf_stepwise_beam_output) = self._stepwise_beam_extrapolator()  # , self.tf_stepwise_debug_output
-            (self.tf_extrapolator_train_op,
-             self.tf_extrapolator_logical_loss_summary,
-             self.tf_extrapolator_lexical_loss_summary) = self._extrapolator_optimizer()
-        self._finish_init()
-
-    def train(self, training_corpus, sample_grammar, train_test_split=None):
-        self._train(
-            self.tf_extrapolator_train_op,
-            [self.tf_extrapolator_lexical_loss_summary, self.tf_extrapolator_logical_loss_summary],
-            training_corpus, sample_grammar, train_test_split)
-
-    def name(self):
-        return super().name()+"_"+"-".join(str(n) for n in self.state_size_per_layer)
-
-    def info(self):
-        result = super().info()
-        result["state_size_per_layer"] = self.state_size_per_layer
-        return result
+        self._finish_init_base()
 
     def extrapolate(self, embedding_featureset, prefix_chars, prefix_classes, num_chars_to_predict):
         """
@@ -315,41 +303,3 @@ class DSLstmExtrapolator(predictor.DSPredictor):
             tf_eol_class_idx,
             tf_beam_probs,
             tf_stepwise_beam_output)  # , tf_stepwise_debug_output
-
-    def _extrapolator_optimizer(self):
-        with tf.name_scope("extrapolator_optimizer"):
-            # -- Obtain global training step
-            global_step = tf.contrib.framework.get_global_step()
-
-            # -- Time indices are sliced as follows:
-            #  For labels: First Input can be ignored
-            #  For predictions: Last output (prediction after EOL) can be ignored
-            #  For example:
-            #   Label := a-b-c-d-e-a-.-0-0 -> Slice First -> b-c-d-e-a-.-0-0
-            #   Pred. := b-c-d-e-a-.-0-0-0 -> Slice Last  -> b-c-d-e-a-.-0-0
-
-            # -- Calculate the average cross entropy for the logical classes per timestep
-            tf_logical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                 labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, -self.num_logical_features:],
-                 logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, -self.num_logical_features:],
-                 dim=2))
-
-            # -- Calculate the average cross entropy for the lexical classes per timestep
-            tf_lexical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, :self.num_lexical_features],
-                logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, :self.num_lexical_features],
-                dim=2))
-
-            # -- Create summaries for TensorBoard
-            tf_logical_loss_summary = tf.summary.scalar("logical_loss", tf_logical_loss)
-            tf_lexical_loss_summary = tf.summary.scalar("lexical_loss", tf_lexical_loss)
-
-            # -- Define training op
-            optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
-            tf_train_op = tf.contrib.layers.optimize_loss(
-                loss=tf_logical_loss+tf_lexical_loss,
-                global_step=global_step,
-                learning_rate=None,
-                summaries=[],
-                optimizer=optimizer)
-        return tf_train_op, tf_logical_loss_summary, tf_lexical_loss_summary
