@@ -5,13 +5,22 @@
 import base64
 import codecs
 import os
+import pickle
+
+try:
+    from scipy.spatial import cKDTree
+except ImportError:
+    print("WARNING: SciPy not installed!")
+    cKDTree = None
+    pass
 
 import tensorflow as tf
+import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from deepspell import corpus
 from deepspell.models import modelbase
+from deepspell import grammar
 
 
 # =======================[ LSTM Extrapolator Model ]=====================
@@ -59,51 +68,65 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             })
             return embeddings[0]
 
-    def encode_corpus(self, corpus_to_encode, batch_size, output_path):
-        assert isinstance(corpus_to_encode, corpus.DSCorpus)
-        result_vectors = []
-        tokens = [
-            token
-            for class_id, tokens in corpus_to_encode.data.items()
-            for token in tokens]
-        total = len(tokens)
-        done = 0
+    def encode_corpus(self, corpus_file_to_encode, output_path, batch_size=16384):
+        if not cKDTree:
+            print("WARNING: SciPy not installed!")
+            return
 
         # -- Find free output path
-        file_path = os.path.join(output_path, corpus_to_encode.generate_name + ".{}.vectors.bin")
+        token_output_file_path = os.path.join(
+            output_path,
+            os.path.splitext(os.path.basename(corpus_file_to_encode))[0] + ".{}.tokens")
         i = 0
-        while os.path.exists(file_path.format(i)):
+        while os.path.exists(token_output_file_path.format(i)):
             i += 1
-        file_path = file_path.format(i)
-        print("Dumping encoded tokens to file '{}'".format(file_path))
-        with codecs.open(file_path, "wb") as dump_file:
-            print("")
-            while tokens:
-                batch_tokens = tokens[:batch_size]
-                tokens = tokens[batch_size:]
-                done += len(batch_tokens)
-                super()._print_progress(done, total)
-                # -- len(token.string)+1 to account for EOL
-                max_token_length = max(len(token.string)+1 for token in batch_tokens)
-                batch_embedding_sequences, batch_lengths, _, _ = zip(*(
-                    self.featureset.embed_tokens(
-                        [token],
-                        max_token_length,
-                        -1,
-                        corruption_grammar=None,
-                        embed_with_class=False)
-                    for token in batch_tokens))
-                with self.graph.as_default():
-                    embeddings = self.session.run(self.tf_latent_means, feed_dict={
-                        self.tf_corrupt_encoder_input: batch_embedding_sequences,
-                        self.tf_timesteps_per_batch: batch_lengths
-                    })
-                assert len(embeddings) == len(batch_tokens)
-                for embedding, token in zip(embeddings, batch_tokens):
-                    # print(token.string, ":", embedding)
-                    dump_file.write(codecs.encode(token.string)+b"\t")
-                    dump_file.write(base64.b64encode(embedding.tostring())+b"\n")
-            print("")
+        token_output_file_path = token_output_file_path.format(i)
+
+        print("Encoding '{}' into '{}' ...".format(corpus_file_to_encode, token_output_file_path))
+        token_embeddings = np.empty(shape=(0, self.embedding_size), dtype=np.float32)
+        with codecs.open(token_output_file_path, "w") as token_output_file:
+            with codecs.open(corpus_file_to_encode) as corpus_file:
+                total = sum(1 for _ in corpus_file)
+            done = 0
+            with codecs.open(corpus_file_to_encode) as corpus_file:
+                batch_tokens = []
+                max_token_length = 0
+                for line in corpus_file:
+                    parts = line.split("\t")
+                    if len(parts) < 6:
+                        continue
+                    token = parts[2].lower()
+                    batch_tokens.append(grammar.DSToken(0, 0, None, token))
+                    max_token_length = max(len(token) + 1, max_token_length)
+                    token_output_file.write(token+"\n")
+                    if len(batch_tokens) >= batch_size or done + len(batch_tokens) >= total:
+                        batch_embedding_sequences, batch_lengths, _, _ = zip(*(
+                            self.featureset.embed_token_sequence(
+                                [token_object],
+                                max_token_length,
+                                embed_with_class=False)
+                            for token_object in batch_tokens))
+                        with self.graph.as_default():
+                            embeddings = self.session.run(self.tf_latent_means, feed_dict={
+                                self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                                self.tf_timesteps_per_batch: batch_lengths
+                            })
+                        assert len(embeddings) == len(batch_tokens)
+                        token_embeddings = np.concatenate((token_embeddings, embeddings), axis=0)
+                        done += len(batch_tokens)
+                        batch_tokens = []
+                        max_token_length = 0
+                        super()._print_progress(done, total)
+            print("\r\n  ... done.")
+
+        print("Building kd-tree ...")
+        result_kdtree = cKDTree(token_embeddings)
+        print("  ... done.")
+        kdtree_output_file_path = os.path.splitext(token_output_file_path)[0]+".kdtree"
+        print("Dumping tree to '{}' ...".format(kdtree_output_file_path))
+        with codecs.open(kdtree_output_file_path, "wb") as kdtree_output_file:
+            pickle.dump(result_kdtree, kdtree_output_file)
+        print("  ... done.")
 
     # ----------------------[ Private Methods ]----------------------
 

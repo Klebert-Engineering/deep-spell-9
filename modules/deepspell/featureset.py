@@ -164,7 +164,7 @@ class DSFeatureSet:
             result.append(char_embedding)
         return np.asarray(result, np.float32)
 
-    def embed_tokens(self, token_list, length_to_align, min_chars_truncate, corruption_grammar=None, embed_with_class=True):
+    def embed_token_sequence(self, token_list, length_to_align, min_chars_truncate=-1, corruption_grammar=None, embed_with_class=True):
         """
         Embeds a sequence of FtsToken instances into 2D feature matrices.
         => Note, that applying both truncation and corruption is not yet supported.

@@ -9,11 +9,11 @@ import time
 
 import tensorflow as tf
 
-# ============================[ Local Imports ]==========================
-
-from deepspell import corpus
+from deepspell import corpus, grammar
 from deepspell.models import modelbase
-from deepspell_optimization import grammar
+
+
+# ============================[ Local Imports ]==========================
 
 
 # ====================[ Abstract Predictor Interface ]===================
@@ -33,16 +33,16 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
                                  | DSModelBase           |
                                  | + graph: tf.Graph     |
                                  | + finish_init_base()  |
-                                 \----A------------A-----/
-                                      '            | __init__
-                                      '       /---------\
-                                      '       | <Model> |
-                                      '       \----A----/
-                                      '            |
-            - - - - - - - - - - - - - ' - - - - - -|- - - - - - - - -
-            (deepspell_optimization)  '            |
-                                      '            |
-                    /-----------------'---------\  |
+                                 \-----A-----------A-----/
+                                       '           | __init__
+                                       '      /---------\
+                                       '      | <Model> |
+                                       '      \----A----/
+                                       '           |
+            - - - - - - - - - - - - - -'- - - - - -|- - - - - - - - -
+            (deepspell_optimization)   '           |
+                                       '           |
+                    /------------------'--------\  |
                     | DSModelOptimizerMixin     |  |
                     | + finish_init_base() {}   |  |
                     | + finish_init_optimizer() |  |

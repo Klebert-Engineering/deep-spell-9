@@ -2,24 +2,16 @@
 
 # =============================[ Imports ]===========================
 
-import base64
 import codecs
 import random
 from collections import defaultdict
 
 import numpy as np
 
-try:
-    from scipy.spatial import cKDTree
-except ImportError:
-    print("WARNING: SciPy not installed!")
-    cKDTree = None
-    pass
+from deepspell import featureset, grammar
+
 
 # ==========================[ Local Imports ]========================
-
-from deepspell import featureset
-from deepspell_optimization import grammar
 
 
 # ============================[ DSCorpus ]===========================
@@ -133,7 +125,7 @@ class DSCorpus:
         # Find the longest phrase, such that all lines in the output matrix can be length-aligned
         max_phrase_length = max(self._token_sequence_length(phrase_tokens) for phrase_tokens in batch_phrases)
         batch_embedding_sequences, batch_lengths, corrupted_batch_embedding_sequences, corrupted_batch_lengths = zip(*(
-            self.featureset.embed_tokens(
+            self.featureset.embed_token_sequence(
                 phrase_tokens,
                 max_phrase_length,
                 min_num_chars_truncate,
@@ -160,30 +152,3 @@ class DSCorpus:
             len(tokens) - 1 +                             # White space
             1                                             # End-of-line
         )
-
-
-# =========================[ DSEncodedCorpus ]========================
-
-class DSEncodedCorpus:
-
-    def __init__(self, path):
-        self.tokens = []
-        self.codes = []
-        print("Loading embedded corpus ...")
-        with codecs.open(path, "rb") as in_file:
-            for line in in_file:
-                token, code = line.strip().split(b"\t")
-                self.tokens.append(codecs.decode(token))
-                self.codes.append(np.fromstring(base64.b64decode(code), dtype=np.float32))
-        print("  ... constructing k-D tree ...")
-        if not cKDTree:
-            print("WARNING: SciPy not installed!")
-        else:
-            self.tree = cKDTree(self.codes)
-        print("  ... done.")
-
-    def lookup(self, vector_to_lookup, n=3):
-        if not self.tree:
-            print("WARNING: SciPy not installed!")
-            return []
-        return [self.tokens[i] for i in self.tree.query(vector_to_lookup, n)[1]]
