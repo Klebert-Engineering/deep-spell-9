@@ -17,19 +17,21 @@ discriminator_model = None
 extrapolator_model = None
 featureset = None
 hostname = ""
+lowercase = False
 
 
 def init(args):
     """
     Must be called from the importing file before app.run()!
     """
-    global discriminator_model, extrapolator_model, featureset, hostname
+    global discriminator_model, extrapolator_model, featureset, hostname, lowercase
     app.config.update(args)
     discriminator_model = DSLstmDiscriminator(args["discriminator"])
     extrapolator_model = DSLstmExtrapolator(args["extrapolator"], extrapolation_beam_count=6)
     assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
     featureset = extrapolator_model.featureset
     hostname = args["hostname"]+":"+str(args["port"])
+    lowercase = args["lowercase"]
 
 
 # ========================[ Routes ]======================
@@ -45,7 +47,7 @@ def hello():
 
 @app.route("/extrapolate")
 def extrapolate():
-    s = fl.request.args.get("s")
+    s = fl.request.args.get("s").lower()
     if not s:
         return fl.jsonify({"sequence": []})
     classes = discriminator_model.discriminate(featureset, s)
@@ -56,7 +58,7 @@ def extrapolate():
 
 @app.route("/discriminate")
 def discriminate():
-    s = fl.request.args.get("s")
+    s = fl.request.args.get("s").lower()
     if not s:
         return fl.jsonify({"sequence": []})
     result = discriminator_model.discriminate(featureset, s)
