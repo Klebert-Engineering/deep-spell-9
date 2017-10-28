@@ -107,10 +107,13 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                                 embed_with_class=False)
                             for token_object in batch_tokens))
                         with self.graph.as_default():
-                            embeddings = self.session.run(self.tf_latent_means, feed_dict={
-                                self.tf_corrupt_encoder_input: batch_embedding_sequences,
-                                self.tf_timesteps_per_batch: batch_lengths
-                            })
+                            encoder_state, embeddings = self.session.run([
+                                    self.tf_encoder_final_state_per_batch,
+                                    self.tf_latent_means],
+                                feed_dict={
+                                    self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                                    self.tf_timesteps_per_batch: batch_lengths
+                                })
                         assert len(embeddings) == len(batch_tokens)
                         token_embeddings = np.concatenate((token_embeddings, embeddings), axis=0)
                         done += len(batch_tokens)
@@ -183,13 +186,11 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                         tf.float32),
                     time_major=False)
 
-        concat_state_size = sum(
-            n * 2 for n in self.encoder_fw_state_size_per_layer + self.encoder_bw_state_size_per_layer)
-        tf_final_encoder_states_per_batch = tf.reshape(tf.concat([
+        tf_final_encoder_states_per_batch = tf.concat([
             state
             for state_tuple_stack in (tf_final_fw_state_tuple_stack, tf_final_bw_state_tuple_stack)
             for state_tuple in state_tuple_stack
-            for state in state_tuple], axis=1), shape=(-1, concat_state_size))
+            for state in state_tuple], axis=1)
 
         return tf_corrupt_encoder_input, tf_final_encoder_states_per_batch
 
@@ -199,8 +200,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         """
         with tf.variable_scope('encoder_to_latent'):
             kl_rate = tf.placeholder(tf.float32, shape=[])
-            concat_state_size = sum(
-                n*2 for n in self.encoder_fw_state_size_per_layer+self.encoder_bw_state_size_per_layer)
+            concat_state_size = 2*sum(self.encoder_fw_state_size_per_layer+self.encoder_bw_state_size_per_layer)
             w = tf.get_variable("w", [concat_state_size, 2 * self.embedding_size], dtype=tf.float32)
             b = tf.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
             mean_logvar = self._prelu(tf.matmul(self.tf_encoder_final_state_per_batch, w) + b)
