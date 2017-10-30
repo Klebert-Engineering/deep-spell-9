@@ -28,6 +28,6 @@
     ],
     "corruption": {
         "stddev": 0.5,
-        "mean": 0.75
+        "mean": 0.4
     }
 }

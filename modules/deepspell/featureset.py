@@ -223,9 +223,6 @@ class DSFeatureSet:
             char_embedding[self.num_lexical_features() + self.eol_class_id] = 1.
         result.append(char_embedding)
         if corrupted_result:
-            char_embedding = np.zeros(embedding_size)
-            if embed_with_class:
-                char_embedding[self.charset_eol_index] = 1.
             corrupted_result.append(char_embedding)
 
         # -- Align output length by padding with null vecs

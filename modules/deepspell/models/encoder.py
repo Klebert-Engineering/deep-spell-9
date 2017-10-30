@@ -38,7 +38,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
 
         super().__init__(
             name_scope="spelling-encoder",
-            version=1,
+            version=2,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
             args_to_update=args_to_update)
@@ -46,6 +46,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         # -- Read params
         self.encoder_fw_state_size_per_layer = args_to_update.pop("encoder_fw_state_size_per_layer", [128, 128])
         self.encoder_bw_state_size_per_layer = args_to_update.pop("encoder_bw_state_size_per_layer", [128, 128])
+        self.encoder_combine_state_size_per_layer = args_to_update.pop("encoder_combine_state_size_per_layer", [128, 128])
         self.embedding_size = args_to_update.pop("embedding_size", 8)
 
         # -- Create Tensor Flow compute graph nodes
@@ -103,7 +104,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                         batch_embedding_sequences, batch_lengths, _, _ = zip(*(
                             self.featureset.embed_token_sequence(
                                 [token_object],
-                                max_token_length,
+                                max_token_length+1,
                                 embed_with_class=False)
                             for token_object in batch_tokens))
                         with self.graph.as_default():
@@ -156,40 +157,34 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                 tf.float32,
                 [None, None, self.num_lexical_features])
 
-            # -- Backward pass
-            with tf.variable_scope("backward"):
-                tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                    self.encoder_bw_state_size_per_layer])
-                tf_backward_embeddings_per_timestep_per_batch, tf_final_bw_state_tuple_stack = tf.nn.dynamic_rnn(
-                    cell=tf_encoder_backward_cell,
-                    inputs=tf.reverse(tf_corrupt_encoder_input, axis=[1]),
-                    initial_state=tf_encoder_backward_cell.zero_state(
-                        tf.shape(tf_corrupt_encoder_input)[0],
-                        tf.float32),
-                    time_major=False)
+            tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_bw_state_size_per_layer])
+            tf_encoder_forward_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_fw_state_size_per_layer])
+            tf_encoder_combine_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_combine_state_size_per_layer])
 
-            with tf.variable_scope("forward"):
-                # -- Forward pass
-                tf_discriminator_forward_cell = tf.contrib.rnn.MultiRNNCell([
-                        tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                        self.encoder_fw_state_size_per_layer])
-                # -- Create a dynamically unrolled RNN to produce the character category discrimination
-                tf_logical_predictions_per_timestep_per_batch, tf_final_fw_state_tuple_stack = tf.nn.dynamic_rnn(
-                    cell=tf_discriminator_forward_cell,
-                    inputs=tf.concat([
-                        tf_corrupt_encoder_input,
-                        tf.reverse(tf_backward_embeddings_per_timestep_per_batch, axis=[1])], axis=2),
-                    sequence_length=self.tf_timesteps_per_batch,
-                    initial_state=tf_discriminator_forward_cell.zero_state(
-                        tf.shape(tf_corrupt_encoder_input)[0],
-                        tf.float32),
-                    time_major=False)
+            # -- Create a dynamically unrolled RNN to produce the character category discrimination
+            tf_preflight_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=tf_encoder_forward_cell,
+                cell_bw=tf_encoder_backward_cell,
+                inputs=tf_corrupt_encoder_input,
+                dtype=tf.float32,
+                sequence_length=self.tf_timesteps_per_batch)
+
+            _, tf_final_state_tuple_stacks = tf.nn.dynamic_rnn(
+                cell=tf_encoder_combine_cell,
+                inputs=tf.concat(tf_preflight_outputs+(tf_corrupt_encoder_input,), axis=2),
+                dtype=tf.float32,
+                sequence_length=self.tf_timesteps_per_batch
+            )
 
         tf_final_encoder_states_per_batch = tf.concat([
             state
-            for state_tuple_stack in (tf_final_fw_state_tuple_stack, tf_final_bw_state_tuple_stack)
-            for state_tuple in state_tuple_stack
+            for state_tuple in tf_final_state_tuple_stacks
             for state in state_tuple], axis=1)
 
         return tf_corrupt_encoder_input, tf_final_encoder_states_per_batch
@@ -200,12 +195,12 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         """
         with tf.variable_scope('encoder_to_latent'):
             kl_rate = tf.placeholder(tf.float32, shape=[])
-            concat_state_size = 2*sum(self.encoder_fw_state_size_per_layer+self.encoder_bw_state_size_per_layer)
+            concat_state_size = 2*sum(self.encoder_combine_state_size_per_layer)
             w = tf.get_variable("w", [concat_state_size, 2 * self.embedding_size], dtype=tf.float32)
             b = tf.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
             mean_logvar = self._prelu(tf.matmul(self.tf_encoder_final_state_per_batch, w) + b)
             means, logvar = tf.split(mean_logvar, num_or_size_splits=2, axis=1)
-            noise = tf.random_normal(tf.shape(means))
+            noise = tf.random_normal(tf.shape(means)) * kl_rate
             sampled_random_vectors = means + tf.exp(0.5 * logvar) * noise
             kl_loss = tf.reshape(
                 tf.reduce_mean(-0.5 * (logvar - tf.square(means) - tf.exp(logvar) + 1.0),),

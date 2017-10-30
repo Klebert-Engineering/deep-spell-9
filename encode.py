@@ -27,7 +27,7 @@ arg_parser.add_argument(
 arg_parser.add_argument(
     "--batch-size", "-b",
     dest="batch_size",
-    default=5,
+    default=16384,
     type=int,
     help="Number of samples that should be processed in parallel.")
 args = arg_parser.parse_args()
