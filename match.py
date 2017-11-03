@@ -6,7 +6,7 @@ import pickle
 import argparse
 from scipy.spatial import cKDTree
 
-sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/models")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/modules")
 
 from deepspell.models.encoder import DSVariationalLstmAutoEncoder
 
