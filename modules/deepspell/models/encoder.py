@@ -5,13 +5,22 @@
 import base64
 import codecs
 import os
+import pickle
+
+try:
+    from scipy.spatial import cKDTree
+except ImportError:
+    print("WARNING: SciPy not installed!")
+    cKDTree = None
+    pass
 
 import tensorflow as tf
+import numpy as np
 
 # ============================[ Local Imports ]==========================
 
-from deepspell import corpus
 from deepspell.models import modelbase
+from deepspell import grammar
 
 
 # =======================[ LSTM Extrapolator Model ]=====================
@@ -29,7 +38,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
 
         super().__init__(
             name_scope="spelling-encoder",
-            version=1,
+            version=2,
             file_or_folder=file_or_folder,
             log_dir=log_dir,
             args_to_update=args_to_update)
@@ -37,6 +46,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         # -- Read params
         self.encoder_fw_state_size_per_layer = args_to_update.pop("encoder_fw_state_size_per_layer", [128, 128])
         self.encoder_bw_state_size_per_layer = args_to_update.pop("encoder_bw_state_size_per_layer", [128, 128])
+        self.encoder_combine_state_size_per_layer = args_to_update.pop("encoder_combine_state_size_per_layer", [128, 128])
         self.embedding_size = args_to_update.pop("embedding_size", 8)
 
         # -- Create Tensor Flow compute graph nodes
@@ -59,51 +69,68 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             })
             return embeddings[0]
 
-    def encode_corpus(self, corpus_to_encode, batch_size, output_path):
-        assert isinstance(corpus_to_encode, corpus.DSCorpus)
-        result_vectors = []
-        tokens = [
-            token
-            for class_id, tokens in corpus_to_encode.data.items()
-            for token in tokens]
-        total = len(tokens)
-        done = 0
+    def encode_corpus(self, corpus_file_to_encode, output_path, batch_size=16384):
+        if not cKDTree:
+            print("WARNING: SciPy not installed!")
+            return
 
         # -- Find free output path
-        file_path = os.path.join(output_path, corpus_to_encode.generate_name + ".{}.vectors.bin")
+        token_output_file_path = os.path.join(
+            output_path,
+            os.path.splitext(os.path.basename(corpus_file_to_encode))[0] + ".{}.tokens")
         i = 0
-        while os.path.exists(file_path.format(i)):
+        while os.path.exists(token_output_file_path.format(i)):
             i += 1
-        file_path = file_path.format(i)
-        print("Dumping encoded tokens to file '{}'".format(file_path))
-        with codecs.open(file_path, "wb") as dump_file:
-            print("")
-            while tokens:
-                batch_tokens = tokens[:batch_size]
-                tokens = tokens[batch_size:]
-                done += len(batch_tokens)
-                super()._print_progress(done, total)
-                # -- len(token.string)+1 to account for EOL
-                max_token_length = max(len(token.string)+1 for token in batch_tokens)
-                batch_embedding_sequences, batch_lengths, _, _ = zip(*(
-                    self.featureset.embed_tokens(
-                        [token],
-                        max_token_length,
-                        -1,
-                        corruption_grammar=None,
-                        embed_with_class=False)
-                    for token in batch_tokens))
-                with self.graph.as_default():
-                    embeddings = self.session.run(self.tf_latent_means, feed_dict={
-                        self.tf_corrupt_encoder_input: batch_embedding_sequences,
-                        self.tf_timesteps_per_batch: batch_lengths
-                    })
-                assert len(embeddings) == len(batch_tokens)
-                for embedding, token in zip(embeddings, batch_tokens):
-                    # print(token.string, ":", embedding)
-                    dump_file.write(codecs.encode(token.string)+b"\t")
-                    dump_file.write(base64.b64encode(embedding.tostring())+b"\n")
-            print("")
+        token_output_file_path = token_output_file_path.format(i)
+
+        print("Encoding '{}' into '{}' ...".format(corpus_file_to_encode, token_output_file_path))
+        token_embeddings = np.empty(shape=(0, self.embedding_size), dtype=np.float32)
+        with codecs.open(token_output_file_path, "w") as token_output_file:
+            with codecs.open(corpus_file_to_encode) as corpus_file:
+                total = sum(1 for _ in corpus_file)
+            done = 0
+            with codecs.open(corpus_file_to_encode) as corpus_file:
+                batch_tokens = []
+                max_token_length = 0
+                for line in corpus_file:
+                    parts = line.split("\t")
+                    if len(parts) < 6:
+                        continue
+                    token = parts[2].lower()
+                    batch_tokens.append(grammar.DSToken(0, 0, None, token))
+                    max_token_length = max(len(token) + 1, max_token_length)
+                    token_output_file.write(token+"\n")
+                    if len(batch_tokens) >= batch_size or done + len(batch_tokens) >= total:
+                        batch_embedding_sequences, batch_lengths, _, _ = zip(*(
+                            self.featureset.embed_token_sequence(
+                                [token_object],
+                                max_token_length+1,
+                                embed_with_class=False)
+                            for token_object in batch_tokens))
+                        with self.graph.as_default():
+                            encoder_state, embeddings = self.session.run([
+                                    self.tf_encoder_final_state_per_batch,
+                                    self.tf_latent_means],
+                                feed_dict={
+                                    self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                                    self.tf_timesteps_per_batch: batch_lengths
+                                })
+                        assert len(embeddings) == len(batch_tokens)
+                        token_embeddings = np.concatenate((token_embeddings, embeddings), axis=0)
+                        done += len(batch_tokens)
+                        batch_tokens = []
+                        max_token_length = 0
+                        super()._print_progress(done, total)
+            print("\r\n  ... done.")
+
+        print("Building kd-tree ...")
+        result_kdtree = cKDTree(token_embeddings)
+        print("  ... done.")
+        kdtree_output_file_path = os.path.splitext(token_output_file_path)[0]+".kdtree"
+        print("Dumping tree to '{}' ...".format(kdtree_output_file_path))
+        with codecs.open(kdtree_output_file_path, "wb") as kdtree_output_file:
+            pickle.dump(result_kdtree, kdtree_output_file)
+        print("  ... done.")
 
     # ----------------------[ Private Methods ]----------------------
 
@@ -130,43 +157,35 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                 tf.float32,
                 [None, None, self.num_lexical_features])
 
-            # -- Backward pass
-            with tf.variable_scope("backward"):
-                tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                    self.encoder_bw_state_size_per_layer])
-                tf_backward_embeddings_per_timestep_per_batch, tf_final_bw_state_tuple_stack = tf.nn.dynamic_rnn(
-                    cell=tf_encoder_backward_cell,
-                    inputs=tf.reverse(tf_corrupt_encoder_input, axis=[1]),
-                    initial_state=tf_encoder_backward_cell.zero_state(
-                        tf.shape(tf_corrupt_encoder_input)[0],
-                        tf.float32),
-                    time_major=False)
+            tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_bw_state_size_per_layer])
+            tf_encoder_forward_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_fw_state_size_per_layer])
+            tf_encoder_combine_cell = tf.contrib.rnn.MultiRNNCell([
+                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+                self.encoder_combine_state_size_per_layer])
 
-            with tf.variable_scope("forward"):
-                # -- Forward pass
-                tf_discriminator_forward_cell = tf.contrib.rnn.MultiRNNCell([
-                        tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                        self.encoder_fw_state_size_per_layer])
-                # -- Create a dynamically unrolled RNN to produce the character category discrimination
-                tf_logical_predictions_per_timestep_per_batch, tf_final_fw_state_tuple_stack = tf.nn.dynamic_rnn(
-                    cell=tf_discriminator_forward_cell,
-                    inputs=tf.concat([
-                        tf_corrupt_encoder_input,
-                        tf.reverse(tf_backward_embeddings_per_timestep_per_batch, axis=[1])], axis=2),
-                    sequence_length=self.tf_timesteps_per_batch,
-                    initial_state=tf_discriminator_forward_cell.zero_state(
-                        tf.shape(tf_corrupt_encoder_input)[0],
-                        tf.float32),
-                    time_major=False)
+            # -- Create a dynamically unrolled RNN to produce the character category discrimination
+            tf_preflight_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=tf_encoder_forward_cell,
+                cell_bw=tf_encoder_backward_cell,
+                inputs=tf_corrupt_encoder_input,
+                dtype=tf.float32,
+                sequence_length=self.tf_timesteps_per_batch)
 
-        concat_state_size = sum(
-            n * 2 for n in self.encoder_fw_state_size_per_layer + self.encoder_bw_state_size_per_layer)
-        tf_final_encoder_states_per_batch = tf.reshape(tf.concat([
+            _, tf_final_state_tuple_stacks = tf.nn.dynamic_rnn(
+                cell=tf_encoder_combine_cell,
+                inputs=tf.concat(tf_preflight_outputs+(tf_corrupt_encoder_input,), axis=2),
+                dtype=tf.float32,
+                sequence_length=self.tf_timesteps_per_batch
+            )
+
+        tf_final_encoder_states_per_batch = tf.concat([
             state
-            for state_tuple_stack in (tf_final_fw_state_tuple_stack, tf_final_bw_state_tuple_stack)
-            for state_tuple in state_tuple_stack
-            for state in state_tuple], axis=1), shape=(-1, concat_state_size))
+            for state_tuple in tf_final_state_tuple_stacks
+            for state in state_tuple], axis=1)
 
         return tf_corrupt_encoder_input, tf_final_encoder_states_per_batch
 
@@ -176,13 +195,12 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         """
         with tf.variable_scope('encoder_to_latent'):
             kl_rate = tf.placeholder(tf.float32, shape=[])
-            concat_state_size = sum(
-                n*2 for n in self.encoder_fw_state_size_per_layer+self.encoder_bw_state_size_per_layer)
+            concat_state_size = 2*sum(self.encoder_combine_state_size_per_layer)
             w = tf.get_variable("w", [concat_state_size, 2 * self.embedding_size], dtype=tf.float32)
             b = tf.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
             mean_logvar = self._prelu(tf.matmul(self.tf_encoder_final_state_per_batch, w) + b)
             means, logvar = tf.split(mean_logvar, num_or_size_splits=2, axis=1)
-            noise = tf.random_normal(tf.shape(means))
+            noise = tf.random_normal(tf.shape(means)) * kl_rate
             sampled_random_vectors = means + tf.exp(0.5 * logvar) * noise
             kl_loss = tf.reshape(
                 tf.reduce_mean(-0.5 * (logvar - tf.square(means) - tf.exp(logvar) + 1.0),),
