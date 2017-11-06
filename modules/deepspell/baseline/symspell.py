@@ -96,16 +96,22 @@ Enter your input (or enter to exit):
 goodbye
 """
 
-import re
 import time
 import pygtrie
+import sys
+import codecs
+
+from dawg import BytesDAWG
+from collections import defaultdict
 
 
-class SymSpellDict:
+class DSSymSpellBaseline:
 
-    def __init__(self, fname, max_edit_distance=2, verbose=0):
+    # ---------------------[ Interface Methods ]---------------------
+
+    def __init__(self, completion_corpus, max_edit_distance=2, verbose=1, bytes_per_index=3):
         """
-        :param fname: Tab-separated FTS corpus file path with tokens to read.
+        :param completion_corpus: Tab-separated FTS corpus file path with tokens to read.
         :param max_edit_distance: The maximum edit distance to be anticipated.
         :param verbose: Determines, how many values should be retrieved with each match() call.
         0: top suggestion
@@ -114,127 +120,48 @@ class SymSpellDict:
         """
         self.verbose = verbose
         self.max_edit_distance = max_edit_distance
-        self.dictionary = pygtrie.CharTrie()
         self.longest_word_length = 0
-        
-        total_word_count = 0
-        unique_word_count = 0
+        self.bytes_per_index = bytes_per_index
+        print("Loading completion tokens from '{}'...".format(completion_corpus))
+        with codecs.open(completion_corpus) as corpus_file:
+            total = sum(1 for _ in corpus_file)
+        done = 0
+        index_for_token = dict()
+        bytes_for_token = defaultdict(lambda: b"")
+        self.token_and_freq_for_index = []
 
-        with open(fname) as file:
-            print("Creating dictionary...")
-            for line in file:
-                # separate by words by non-alphabetical characters
-                words = re.findall('[a-z]+', line.lower())
-                for word in words:
-                    total_word_count += 1
-                    if self.create_dictionary_entry(word):
-                        unique_word_count += 1
-
-        print("total words processed: %i" % total_word_count)
-        print("total unique words in corpus: %i" % unique_word_count)
-        print("total items in dictionary (corpus words and deletions): %i" % len(self.self.dictionary))
-        print("  edit distance for deletions: %i" % self.max_edit_distance)
-        print("  length of longest word in corpus: %i" % self.longest_word_length)
-
-
-    def get_deletes_list(self, w):
-        """given a word, derive strings with up to max_edit_distance characters
-           deleted"""
-        deletes = []
-        queue = [w]
-        for d in range(self.max_edit_distance):
-            temp_queue = []
-            for word in queue:
-                if len(word) > 1:
-                    for c in range(len(word)):  # character index
-                        word_minus_c = word[:c] + word[c + 1:]
-                        if word_minus_c not in deletes:
-                            deletes.append(word_minus_c)
-                        if word_minus_c not in temp_queue:
-                            temp_queue.append(word_minus_c)
-            queue = temp_queue
-        return deletes
-
-    def create_dictionary_entry(self, word):
-        """add word and its derived deletions to dictionary"""
-        # check if word is already in dictionary
-        # dictionary entries are in the form: (list of suggested corrections,
-        # frequency of word in corpus)
-        new_real_word_added = False
-        if word in self.dictionary:
-            # increment count of word in corpus
-            self.dictionary[word] = (self.dictionary[word][0], self.dictionary[word][1] + 1)
-        else:
-            self.dictionary[word] = ([], 1)
-            self.longest_word_length = max(self.longest_word_length, len(word))
-
-        if self.dictionary[word][1] == 1:
-            # first appearance of word in corpus
-            # n.b. word may already be in dictionary as a derived word
-            # (deleting character from a real word)
-            # but counter of frequency of word in corpus is not incremented
-            # in those cases)
-            new_real_word_added = True
-            deletes = self.get_deletes_list(word)
-            for item in deletes:
-                if item in self.dictionary:
-                    # add (correct) word to delete's suggested correction list
-                    self.dictionary[item][0].append(word)
+        with codecs.open(completion_corpus) as corpus_file:
+            for line in corpus_file:
+                parts = line.split("\t")
+                done += 1
+                self._print_progress(done, total)
+                if len(parts) < 6:
+                    continue
+                token = parts[2].lower()
+                # check if word is already in dictionary
+                # dictionary entries are in the form: (list of suggested corrections, frequency of word in corpus)
+                if token in index_for_token:
+                    token_index = index_for_token[token]
                 else:
-                    # note frequency of word in corpus is not incremented
-                    self.dictionary[item] = ([word], 0)
-        return new_real_word_added
+                    token_index = len(self.token_and_freq_for_index)
+                    index_for_token[token] = token_index
+                    self.longest_word_length = max(len(token), self.longest_word_length)
+                    self.token_and_freq_for_index.append([token, 0])
+                    # first appearance of word in corpus
+                    # n.b. word may already be in dictionary as a derived word, but
+                    # counter of frequency of word in corpus is not incremented in those cases.
+                    deletes = self._generate_lookup_entries(token)
+                    word_index_bytes = token_index.to_bytes(self.bytes_per_index, 'big')
+                    for entry in deletes:
+                        bytes_for_token[entry] += word_index_bytes
 
-    @staticmethod
-    def dameraulevenshtein(seq1, seq2):
-        """Calculate the Damerau-Levenshtein distance between sequences.
+                # increment count of token in corpus
+                self.token_and_freq_for_index[token_index][1] += 1
 
-        This method has not been modified from the original.
-        Source: http://mwh.geek.nz/2009/04/26/python-damerau-levenshtein-distance/
+        self.dictionary = BytesDAWG(bytes_for_token.items())
+        print("\n  ... done.")
 
-        This distance is the number of additions, deletions, substitutions,
-        and transpositions needed to transform the first sequence into the
-        second. Although generally used with strings, any sequences of
-        comparable objects will work.
-
-        Transpositions are exchanges of *consecutive* characters; all other
-        operations are self-explanatory.
-
-        This implementation is O(N*M) time and O(M) space, for N and M the
-        lengths of the two sequences.
-
-        >>> dameraulevenshtein('ba', 'abc')
-        2
-        >>> dameraulevenshtein('fee', 'deed')
-        2
-
-        It works with arbitrary sequences too:
-        >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
-        2
-        """
-        # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
-        # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
-        # However, only the current and two previous rows are needed at once,
-        # so we only store those.
-        oneago = None
-        thisrow = list(range(1, len(seq2) + 1)) + [0]
-        for x in range(len(seq1)):
-            # Python lists wrap around for negative indices, so put the
-            # leftmost column at the *end* of the list. This matches with
-            # the zero-indexed strings and saves extra calculation.
-            twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
-            for y in range(len(seq2)):
-                delcost = oneago[y] + 1
-                addcost = thisrow[y - 1] + 1
-                subcost = oneago[y - 1] + (seq1[x] != seq2[y])
-                thisrow[y] = min(delcost, addcost, subcost)
-                # This block deals with transpositions
-                if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
-                    and seq1[x - 1] == seq2[y] and seq1[x] != seq2[y]):
-                    thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
-        return thisrow[len(seq2) - 1]
-
-    def get_suggestions(self, string, silent=False):
+    def match(self, string, silent=False):
         """
         Returns list of suggested corrections for potentially incorrectly spelled word.
 
@@ -269,33 +196,22 @@ class SymSpellDict:
 
             # process queue item
             if (q_item in self.dictionary) and (q_item not in suggest_dict):
-                if self.dictionary[q_item][1] > 0:
-                    # word is in dictionary, and is a word from the corpus, and
-                    # not already in suggestion list so add to suggestion
-                    # dictionary, indexed by the word with value (frequency in
-                    # corpus, edit distance)
-                    # note q_items that are not the input string are shorter
-                    # than input string since only deletes are added (unless
-                    # manual dictionary corrections are added)
-                    assert len(string) >= len(q_item)
-                    suggest_dict[q_item] = (self.dictionary[q_item][1],
-                                            len(string) - len(q_item))
-                    # early exit
-                    if (self.verbose < 2) and (len(string) == len(q_item)):
-                        break
-                    elif (len(string) - len(q_item)) < min_suggest_len:
-                        min_suggest_len = len(string) - len(q_item)
-
                 # the suggested corrections for q_item as stored in
                 # dictionary (whether or not q_item itself is a valid word
                 # or merely a delete) can be valid corrections
-                for sc_item in self.dictionary[q_item][0]:
+                reference_index_sequence_blob = self.dictionary[q_item][0]
+                assert (len(reference_index_sequence_blob) % self.bytes_per_index) == 0
+
+                for i in range(0, len(reference_index_sequence_blob), self.bytes_per_index):
+                    sc_item_index = int.from_bytes(reference_index_sequence_blob[i:i+self.bytes_per_index], 'big')
+                    assert sc_item_index < len(self.token_and_freq_for_index)
+                    sc_item, sc_item_freq = self.token_and_freq_for_index[sc_item_index]
                     if sc_item not in suggest_dict:
 
                         # compute edit distance
                         # suggested items should always be longer
                         # (unless manual corrections are added)
-                        assert len(sc_item) > len(q_item)
+                        assert len(sc_item) >= len(q_item)
 
                         # q_items that are not input should be shorter
                         # than original string
@@ -304,7 +220,6 @@ class SymSpellDict:
 
                         if len(q_item) == len(string):
                             assert q_item == string
-                            item_dist = len(sc_item) - len(q_item)
 
                         # item in suggestions list should not be the same as
                         # the string itself
@@ -312,7 +227,7 @@ class SymSpellDict:
 
                         # calculate edit distance using, for example,
                         # Damerau-Levenshtein distance
-                        item_dist = self.dameraulevenshtein(sc_item, string)
+                        item_dist = self._dameraulevenshtein(sc_item, string)
 
                         # do not add words with greater edit distance if
                         # verbose setting not on
@@ -320,7 +235,7 @@ class SymSpellDict:
                             pass
                         elif item_dist <= self.max_edit_distance:
                             assert sc_item in self.dictionary  # should already be in dictionary if in suggestion list
-                            suggest_dict[sc_item] = (self.dictionary[sc_item][1], item_dist)
+                            suggest_dict[sc_item] = (sc_item_freq, item_dist)
                             if item_dist < min_suggest_len:
                                 min_suggest_len = item_dist
 
@@ -374,36 +289,123 @@ class SymSpellDict:
 
     def best_word(self, s, silent=False):
         try:
-            return self.get_suggestions(s, silent)[0]
+            return self.match(s, silent)[0]
         except:
             return None
 
-## main
+    # ----------------------[ Private Methods ]----------------------
 
-if __name__ == "__main__":
+    def _generate_lookup_entries(self, w):
+        """given a word, derive strings with up to max_edit_distance characters
+           deleted"""
+        deletes = [w]
+        queue = [w]
+        for d in range(self.max_edit_distance):
+            temp_queue = []
+            for word in queue:
+                if len(word) > 1:
+                    for c in range(len(word)):  # character index
+                        word_minus_c = word[:c] + word[c + 1:]
+                        if word_minus_c not in deletes:
+                            deletes.append(word_minus_c)
+                        if word_minus_c not in temp_queue:
+                            temp_queue.append(word_minus_c)
+            queue = temp_queue
+        return deletes
 
-    print("Please wait...")
-    time.sleep(2)
-    start_time = time.time()
-    spellchecker = SymSpellDict("big.txt")
-    run_time = time.time() - start_time
-    print("-----")
-    print("%.2f seconds to run" % run_time)
-    print("-----")
+    def _add_word(self, word):
+        """add word and its derived deletions to dictionary"""
+        # check if word is already in dictionary
+        # dictionary entries are in the form: (list of suggested corrections, frequency of word in corpus)
+        new_real_word_added = False
+        if word in self.dictionary:
+            # increment count of word in corpus
+            self.dictionary[word] = (self.dictionary[word][0], self.dictionary[word][1] + 1)
+        else:
+            self.longest_word_length = max(len(word), self.longest_word_length)
+            self.dictionary[word] = ([], 1)
 
-    print(" ")
-    print("Word correction")
-    print("---------------")
+        if self.dictionary[word][1] == 1:
+            # first appearance of word in corpus
+            # n.b. word may already be in dictionary as a derived word, but
+            # counter of frequency of word in corpus is not incremented in those cases.
+            new_real_word_added = True
+            deletes = self._generate_lookup_entries(word)
+            for item in deletes:
+                if item in self.dictionary:
+                    # add (correct) word to delete's suggested correction list
+                    self.dictionary[item][0].append(word)
+                else:
+                    # note frequency of word in corpus is not incremented
+                    self.dictionary[item] = ([word], 0)
+        return new_real_word_added
 
-    while True:
-        word_in = input('Enter your input (or enter to exit): ')
-        if len(word_in) == 0:
-            print("goodbye")
-            break
-        start_time = time.time()
-        print(spellchecker.get_suggestions(word_in))
-        run_time = time.time() - start_time
-        print("-----")
-        print("%.5f seconds to run" % run_time)
-        print("-----")
-        print(" ")
+    @staticmethod
+    def _dameraulevenshtein(seq1, seq2):
+        """Calculate the Damerau-Levenshtein distance between sequences.
+
+        This method has not been modified from the original.
+        Source: http://mwh.geek.nz/2009/04/26/python-damerau-levenshtein-distance/
+
+        This distance is the number of additions, deletions, substitutions,
+        and transpositions needed to transform the first sequence into the
+        second. Although generally used with strings, any sequences of
+        comparable objects will work.
+
+        Transpositions are exchanges of *consecutive* characters; all other
+        operations are self-explanatory.
+
+        This implementation is O(N*M) time and O(M) space, for N and M the
+        lengths of the two sequences.
+
+        >>> dameraulevenshtein('ba', 'abc')
+        2
+        >>> dameraulevenshtein('fee', 'deed')
+        2
+
+        It works with arbitrary sequences too:
+        >>> dameraulevenshtein('abcd', ['b', 'a', 'c', 'd', 'e'])
+        2
+        """
+        # codesnippet:D0DE4716-B6E6-4161-9219-2903BF8F547F
+        # Conceptually, this is based on a len(seq1) + 1 * len(seq2) + 1 matrix.
+        # However, only the current and two previous rows are needed at once,
+        # so we only store those.
+        oneago = None
+        thisrow = list(range(1, len(seq2) + 1)) + [0]
+        for x in range(len(seq1)):
+            # Python lists wrap around for negative indices, so put the
+            # leftmost column at the *end* of the list. This matches with
+            # the zero-indexed strings and saves extra calculation.
+            twoago, oneago, thisrow = oneago, thisrow, [0] * len(seq2) + [x + 1]
+            for y in range(len(seq2)):
+                delcost = oneago[y] + 1
+                addcost = thisrow[y - 1] + 1
+                subcost = oneago[y - 1] + (seq1[x] != seq2[y])
+                thisrow[y] = min(delcost, addcost, subcost)
+                # This block deals with transpositions
+                if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
+                    and seq1[x - 1] == seq2[y] and seq1[x] != seq2[y]):
+                    thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
+        return thisrow[len(seq2) - 1]
+
+    @staticmethod
+    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
+        """
+        Call in a loop to create terminal progress bar
+        @params:
+            iteration   - Required  : current iteration (Int)
+            total       - Required  : total iterations (Int)
+            prefix      - Optional  : prefix string (Str)
+            suffix      - Optional  : suffix string (Str)
+            decimals    - Optional  : positive number of decimals in percent complete (Int)
+            bar_length  - Optional  : character length of bar (Int)
+        """
+        str_format = "{0:." + str(decimals) + "f}"
+        percents = str_format.format(100 * (iteration / float(total)))
+        filled_length = int(round(bar_length * iteration / float(total)))
+        bar = '#' * filled_length + '-' * (bar_length - filled_length)
+        sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
+        if iteration == total:
+            sys.stdout.write('\n')
+        sys.stdout.flush()
