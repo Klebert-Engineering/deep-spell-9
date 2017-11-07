@@ -15,7 +15,8 @@ import codecs
 import sys
 import string
 import unidecode
-import datrie
+# from datrie import Trie
+from hat_trie import Trie
 from dawg import BytesDAWG
 
 
@@ -62,7 +63,7 @@ input_file_path = sys.argv[1]
 output_file_path = sys.argv[2]
 charset = string.ascii_lowercase+string.digits+string.punctuation+string.whitespace
 
-bytes_for_token = datrie.Trie(charset)
+bytes_for_token = Trie()  # charset
 token_and_freq_for_index = []
 longest_word_length = 0
 bytes_per_index = 3
@@ -74,14 +75,14 @@ done = 0
 
 print("Loading completion tokens from '{}'...".format(input_file_path))
 with codecs.open(input_file_path) as input_file:
-    index_for_token = datrie.Trie(charset)
+    index_for_token = Trie()  # charset
     for line in input_file:
         parts = line.split("\t")
         done += 1
         print_progress(done, total)
         if len(parts) < 6:
             continue
-        token = unidecode.unidecode(parts[2].lower())
+        token = parts[2].lower()  # unidecode.unidecode()
         # check if word is already in dictionary
         # dictionary entries are in the form: (list of suggested corrections, frequency of word in corpus)
         if token in index_for_token:
@@ -107,7 +108,7 @@ with codecs.open(input_file_path) as input_file:
 print("\n  ...done.")
 
 print("Creating DAWG...")
-dawg_dict = BytesDAWG(bytes_for_token.items())
+dawg_dict = BytesDAWG(((token, bytes_for_token[token]) for token in bytes_for_token.iterkeys()))
 print("  ...done.")
 
 print("Writing output files {}.refs and {}.tokens ...".format(output_file_path, output_file_path))
