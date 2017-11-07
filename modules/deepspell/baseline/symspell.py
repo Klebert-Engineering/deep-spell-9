@@ -1,117 +1,16 @@
-"""
-symspell_python.py
+# (C) 2017 Klebert Engineering GmbH
 
-################
-
-To run, execute python symspell_python.py at the prompt.
-Make sure the dictionary "big.txt" is in the current working directory.
-Enter word to correct when prompted.
-
-################
-
-v 1.3 last revised 29 Apr 2017
-Please note: This code is no longer being actively maintained.
-
-License:
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License,
-version 3.0 (LGPL-3.0) as published by the Free Software Foundation.
-http://www.opensource.org/licenses/LGPL-3.0
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-See the GNU General Public License for more details.
-
-Please acknowledge Wolf Garbe, as the original creator of SymSpell,
-(see note below) in any use.
-
-################
-
-This program is a Python version of a spellchecker based on SymSpell,
-a Symmetric Delete spelling correction algorithm developed by Wolf Garbe
-and originally written in C#.
-
-From the original SymSpell documentation:
-
-"The Symmetric Delete spelling correction algorithm reduces the complexity
- of edit candidate generation and dictionary lookup for a given Damerau-
- Levenshtein distance. It is six orders of magnitude faster and language
- independent. Opposite to other algorithms only deletes are required,
- no transposes + replaces + inserts. Transposes + replaces + inserts of the
- input term are transformed into deletes of the dictionary term.
- Replaces and inserts are expensive and language dependent:
- e.g. Chinese has 70,000 Unicode Han characters!"
-
-For further information on SymSpell, please consult the original
-documentation:
-  URL: blog.faroo.com/2012/06/07/improved-edit-distance-based-spelling-correction/
-  Description: blog.faroo.com/2012/06/07/improved-edit-distance-based-spelling-correction/
-
-The current version of this program will output all possible suggestions for
-corrections up to an edit distance (configurable) of max_edit_distance = 3.
-
-With the exception of the use of a third-party method for calculating
-Demerau-Levenshtein distance between two strings, we have largely followed
-the structure and spirit of the original SymSpell algorithm and have not
-introduced any major optimizations or improvements.
-
-################
-
-Changes from version (1.0):
-We implement allowing for less verbose options: e.g. when only a single
-recommended correction is required, the search may terminate early, thereby
-enhancing performance.
-
-Changes from version (1.1):
-Removed unnecessary condition in create_dictionary_entry
-
-Changes from version (1.2):
-Update maintenance status
-
-#################
-
-Sample output:
-
-Please wait...
-Creating dictionary...
-total words processed: 1105285
-total unique words in corpus: 29157
-total items in dictionary (corpus words and deletions): 2151998
-  edit distance for deletions: 3
-  length of longest word in corpus: 18
-
-Word correction
----------------
-Enter your input (or enter to exit): there
-('there', (2972, 0))
-
-Enter your input (or enter to exit): hellot
-('hello', (1, 1))
-
-Enter your input (or enter to exit): accomodation
-('accommodation', (5, 1))
-
-Enter your input (or enter to exit):
-goodbye
-"""
-
-import time
-import pygtrie
-import sys
 import codecs
-
 from dawg import BytesDAWG
-from collections import defaultdict
 
 
 class DSSymSpellBaseline:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, completion_corpus, max_edit_distance=2, verbose=1, bytes_per_index=3):
+    def __init__(self, dawg_and_token_freq_file_path, max_edit_distance=2, verbose=1, bytes_per_index=3):
         """
-        :param completion_corpus: Tab-separated FTS corpus file path with tokens to read.
+        :param dawg_and_token_freq_file_path: Should point to a .tokens and .refs file.
         :param max_edit_distance: The maximum edit distance to be anticipated.
         :param verbose: Determines, how many values should be retrieved with each match() call.
         0: top suggestion
@@ -122,44 +21,21 @@ class DSSymSpellBaseline:
         self.max_edit_distance = max_edit_distance
         self.longest_word_length = 0
         self.bytes_per_index = bytes_per_index
-        print("Loading completion tokens from '{}'...".format(completion_corpus))
-        with codecs.open(completion_corpus) as corpus_file:
-            total = sum(1 for _ in corpus_file)
-        done = 0
-        index_for_token = dict()
-        bytes_for_token = defaultdict(lambda: b"")
+
+        print("Loading token frequencies from '{}.tokens'...".format(dawg_and_token_freq_file_path))
         self.token_and_freq_for_index = []
+        with codecs.open(dawg_and_token_freq_file_path+".tokens") as token_file:
+            for line in token_file:
+                token, freq = line.strip().split("\t")
+                self.longest_word_length = max(self.longest_word_length, len(token))
+                self.token_and_freq_for_index.append((token, int(freq)))
+        print("  ...done.")
 
-        with codecs.open(completion_corpus) as corpus_file:
-            for line in corpus_file:
-                parts = line.split("\t")
-                done += 1
-                self._print_progress(done, total)
-                if len(parts) < 6:
-                    continue
-                token = parts[2].lower()
-                # check if word is already in dictionary
-                # dictionary entries are in the form: (list of suggested corrections, frequency of word in corpus)
-                if token in index_for_token:
-                    token_index = index_for_token[token]
-                else:
-                    token_index = len(self.token_and_freq_for_index)
-                    index_for_token[token] = token_index
-                    self.longest_word_length = max(len(token), self.longest_word_length)
-                    self.token_and_freq_for_index.append([token, 0])
-                    # first appearance of word in corpus
-                    # n.b. word may already be in dictionary as a derived word, but
-                    # counter of frequency of word in corpus is not incremented in those cases.
-                    deletes = self._generate_lookup_entries(token)
-                    word_index_bytes = token_index.to_bytes(self.bytes_per_index, 'big')
-                    for entry in deletes:
-                        bytes_for_token[entry] += word_index_bytes
-
-                # increment count of token in corpus
-                self.token_and_freq_for_index[token_index][1] += 1
-
-        self.dictionary = BytesDAWG(bytes_for_token.items())
-        print("\n  ... done.")
+        print("Loading spelling-DAWG from '{}.refs'...".format(dawg_and_token_freq_file_path))
+        self.dictionary = BytesDAWG()
+        with codecs.open(dawg_and_token_freq_file_path+".refs", "rb") as dawg_file:
+            self.dictionary.read(dawg_file)
+        print("  ... done.")
 
     def match(self, string, silent=False):
         """
@@ -234,6 +110,7 @@ class DSSymSpellBaseline:
                         if (self.verbose < 2) and (item_dist > min_suggest_len):
                             pass
                         elif item_dist <= self.max_edit_distance:
+                            print(sc_item)
                             assert sc_item in self.dictionary  # should already be in dictionary if in suggestion list
                             suggest_dict[sc_item] = (sc_item_freq, item_dist)
                             if item_dist < min_suggest_len:
@@ -295,51 +172,6 @@ class DSSymSpellBaseline:
 
     # ----------------------[ Private Methods ]----------------------
 
-    def _generate_lookup_entries(self, w):
-        """given a word, derive strings with up to max_edit_distance characters
-           deleted"""
-        deletes = [w]
-        queue = [w]
-        for d in range(self.max_edit_distance):
-            temp_queue = []
-            for word in queue:
-                if len(word) > 1:
-                    for c in range(len(word)):  # character index
-                        word_minus_c = word[:c] + word[c + 1:]
-                        if word_minus_c not in deletes:
-                            deletes.append(word_minus_c)
-                        if word_minus_c not in temp_queue:
-                            temp_queue.append(word_minus_c)
-            queue = temp_queue
-        return deletes
-
-    def _add_word(self, word):
-        """add word and its derived deletions to dictionary"""
-        # check if word is already in dictionary
-        # dictionary entries are in the form: (list of suggested corrections, frequency of word in corpus)
-        new_real_word_added = False
-        if word in self.dictionary:
-            # increment count of word in corpus
-            self.dictionary[word] = (self.dictionary[word][0], self.dictionary[word][1] + 1)
-        else:
-            self.longest_word_length = max(len(word), self.longest_word_length)
-            self.dictionary[word] = ([], 1)
-
-        if self.dictionary[word][1] == 1:
-            # first appearance of word in corpus
-            # n.b. word may already be in dictionary as a derived word, but
-            # counter of frequency of word in corpus is not incremented in those cases.
-            new_real_word_added = True
-            deletes = self._generate_lookup_entries(word)
-            for item in deletes:
-                if item in self.dictionary:
-                    # add (correct) word to delete's suggested correction list
-                    self.dictionary[item][0].append(word)
-                else:
-                    # note frequency of word in corpus is not incremented
-                    self.dictionary[item] = ([word], 0)
-        return new_real_word_added
-
     @staticmethod
     def _dameraulevenshtein(seq1, seq2):
         """Calculate the Damerau-Levenshtein distance between sequences.
@@ -389,23 +221,3 @@ class DSSymSpellBaseline:
                     thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
         return thisrow[len(seq2) - 1]
 
-    @staticmethod
-    def _print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=10):
-        """
-        Call in a loop to create terminal progress bar
-        @params:
-            iteration   - Required  : current iteration (Int)
-            total       - Required  : total iterations (Int)
-            prefix      - Optional  : prefix string (Str)
-            suffix      - Optional  : suffix string (Str)
-            decimals    - Optional  : positive number of decimals in percent complete (Int)
-            bar_length  - Optional  : character length of bar (Int)
-        """
-        str_format = "{0:." + str(decimals) + "f}"
-        percents = str_format.format(100 * (iteration / float(total)))
-        filled_length = int(round(bar_length * iteration / float(total)))
-        bar = '#' * filled_length + '-' * (bar_length - filled_length)
-        sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
-        if iteration == total:
-            sys.stdout.write('\n')
-        sys.stdout.flush()
