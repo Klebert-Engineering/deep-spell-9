@@ -69,12 +69,12 @@ longest_word_length = 0
 bytes_per_index = 3
 
 # Count total lines in corpus file
-with codecs.open(input_file_path) as corpus_file:
+with codecs.open(input_file_path, encoding="utf-8") as corpus_file:
     total = sum(1 for _ in corpus_file)
 done = 0
 
 print("Loading completion tokens from '{}'...".format(input_file_path))
-with codecs.open(input_file_path) as input_file:
+with codecs.open(input_file_path, encoding="utf-8") as input_file:
     index_for_token = Trie()  # charset
     for line in input_file:
         parts = line.split("\t")
@@ -113,7 +113,7 @@ print("  ...done.")
 
 print("Writing output files {}.refs and {}.tokens ...".format(output_file_path, output_file_path))
 with codecs.open(output_file_path+".refs", "wb") as output_refs, \
-     codecs.open(output_file_path + ".tokens", "w") as output_tokens:
+     codecs.open(output_file_path + ".tokens", "w", encoding="utf-8") as output_tokens:
     dawg_dict.write(output_refs)
     for token, freq in token_and_freq_for_index:
         output_tokens.write("{}\t{}\n".format(token, freq))
