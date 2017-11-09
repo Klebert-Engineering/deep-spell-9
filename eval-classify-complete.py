@@ -13,7 +13,7 @@ from deepspell.corpus import DSCorpus
 from deepspell.grammar import DSGrammar
 from deepspell.models.extrapolator import DSLstmExtrapolator
 from deepspell.models.discriminator import DSLstmDiscriminator
-from deepspell.baseline import DSFts5BaselineCompleter
+from deepspell.baseline.fts5 import DSFts5BaselineCompleter
 
 arg_parser = argparse.ArgumentParser("NDS AutoCompletion Quality Evaluator")
 arg_parser.add_argument(
