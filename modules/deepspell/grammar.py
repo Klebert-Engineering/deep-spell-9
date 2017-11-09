@@ -198,9 +198,14 @@ class DSGrammar:
                 self.nonterminal_rules[new_rule_class] = new_rule
                 print("  Added '{}' rule for '{}'.".format(new_rule_type, new_rule_class))
 
-    def random_phrase_with_token(self, token):
+    def random_phrase_with_token(self, token, corrupt=False):
         assert isinstance(token, DSToken)
-        return self.nonterminal_rules[self.root_nonterminal].generate_with_token(token)
+        result = self.nonterminal_rules[self.root_nonterminal].generate_with_token(token)
+        if corrupt:
+            result = [
+                DSToken(t.id[0], t.id[1], t.parent, self.corrupt(t.string))
+                for t in result]
+        return result
 
     def corrupt(self, string_to_corrupt):
         """

@@ -14,13 +14,13 @@ Takes two arguments:
 import codecs
 import sys
 import string
-import unidecode
+# import unidecode
 # from datrie import Trie
 from hat_trie import Trie
 from dawg import BytesDAWG
 
 
-def generate_lookup_entries(w, max_edit_distance=2):
+def generate_lookup_entries(w, max_edit_distance=0):
     """given a word, derive strings with up to max_edit_distance characters
        deleted"""
     result = {w}
@@ -108,13 +108,12 @@ with codecs.open(input_file_path, encoding="utf-8") as input_file:
 print("\n  ...done.")
 
 print("Creating DAWG...")
-dawg_dict = BytesDAWG(((token, bytes_for_token[token]) for token in bytes_for_token.iterkeys()))
+dawg_dict = BytesDAWG(([token, bytes_for_token[token]] for token in bytes_for_token.iterkeys()))
 print("  ...done.")
 
 print("Writing output files {}.refs and {}.tokens ...".format(output_file_path, output_file_path))
-with codecs.open(output_file_path+".refs", "wb") as output_refs, \
-     codecs.open(output_file_path + ".tokens", "w", encoding="utf-8") as output_tokens:
-    dawg_dict.write(output_refs)
+dawg_dict.save(output_file_path + ".refs")
+with codecs.open(output_file_path + ".tokens", "w", encoding="utf-8") as output_tokens:
     for token, freq in token_and_freq_for_index:
         output_tokens.write("{}\t{}\n".format(token, freq))
 print("  ...done.")

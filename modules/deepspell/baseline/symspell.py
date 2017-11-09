@@ -33,8 +33,7 @@ class DSSymSpellBaseline:
 
         print("Loading spelling-DAWG from '{}.refs'...".format(dawg_and_token_freq_file_path))
         self.dictionary = BytesDAWG()
-        with codecs.open(dawg_and_token_freq_file_path+".refs", "rb") as dawg_file:
-            self.dictionary.read(dawg_file)
+        self.dictionary.load(dawg_and_token_freq_file_path+".refs")
         print("  ... done.")
 
     def match(self, string, silent=False):
@@ -97,10 +96,6 @@ class DSSymSpellBaseline:
                         if len(q_item) == len(string):
                             assert q_item == string
 
-                        # item in suggestions list should not be the same as
-                        # the string itself
-                        assert sc_item != string
-
                         # calculate edit distance using, for example,
                         # Damerau-Levenshtein distance
                         item_dist = self._dameraulevenshtein(sc_item, string)
@@ -110,7 +105,6 @@ class DSSymSpellBaseline:
                         if (self.verbose < 2) and (item_dist > min_suggest_len):
                             pass
                         elif item_dist <= self.max_edit_distance:
-                            print(sc_item)
                             assert sc_item in self.dictionary  # should already be in dictionary if in suggestion list
                             suggest_dict[sc_item] = (sc_item_freq, item_dist)
                             if item_dist < min_suggest_len:
