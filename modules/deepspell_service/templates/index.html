@@ -55,15 +55,23 @@
                     <span id="prediction" class="w3-text-gray w3-small">No Input</span>
                     <span class="w3-small" style="float: right">Press tab to complete.</span>
                 </div>
-                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white" style="overflow: auto">
                     <h6>Predicted Categories</h6>
                     <div id="categories" class="table-wrapper"></div>
                 </div>
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
+                    <h6>FTS5 Lookup</h6>
+                    <div id="lookup" class="table-wrapper"></div>
+                </div>
             </div>
             <div class="layout-col-third">
-                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
+                <div class="w3-row w3-card-4 w3-padding w3-margin-bottom w3-white" style="overflow: auto">
                     <h6>Completion</h6>
                     <div id="completion" class="table-wrapper"></div>
+                </div>
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto" id="correction-panel">
+                    <h6>Correction</h6>
+                    <div id="correction" class="table-wrapper"></div>
                 </div>
             </div>
         </div>

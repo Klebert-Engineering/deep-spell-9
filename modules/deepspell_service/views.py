@@ -15,6 +15,7 @@ from deepspell.models.discriminator import DSLstmDiscriminator
 
 discriminator_model = None
 extrapolator_model = None
+corrector_model = None
 featureset = None
 hostname = ""
 lowercase = False
