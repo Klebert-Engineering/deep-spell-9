@@ -14,8 +14,6 @@ Takes two arguments:
 import codecs
 import sys
 import string
-# import unidecode
-# from datrie import Trie
 from hat_trie import Trie
 from dawg import BytesDAWG
 
@@ -61,7 +59,6 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_lengt
 
 input_file_path = sys.argv[1]
 output_file_path = sys.argv[2]
-charset = string.ascii_lowercase+string.digits+string.punctuation+string.whitespace
 
 bytes_for_token = Trie()  # charset
 token_and_freq_for_index = []

@@ -69,68 +69,53 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             })
             return embeddings[0]
 
-    def encode_corpus(self, corpus_file_to_encode, output_path, batch_size=16384):
+    def encode_corpus(self, corpus_file_to_encode, batch_size=16384):
         if not cKDTree:
             print("WARNING: SciPy not installed!")
             return
-
-        # -- Find free output path
-        token_output_file_path = os.path.join(
-            output_path,
-            os.path.splitext(os.path.basename(corpus_file_to_encode))[0] + ".{}.tokens")
-        i = 0
-        while os.path.exists(token_output_file_path.format(i)):
-            i += 1
-        token_output_file_path = token_output_file_path.format(i)
-
-        print("Encoding '{}' into '{}' ...".format(corpus_file_to_encode, token_output_file_path))
+        print("Encoding tokens from '{}' ...".format(corpus_file_to_encode))
+        result_tokens = []
         token_embeddings = np.empty(shape=(0, self.embedding_size), dtype=np.float32)
-        with codecs.open(token_output_file_path, "w") as token_output_file:
-            with codecs.open(corpus_file_to_encode) as corpus_file:
-                total = sum(1 for _ in corpus_file)
-            done = 0
-            with codecs.open(corpus_file_to_encode) as corpus_file:
-                batch_tokens = []
-                max_token_length = 0
-                for line in corpus_file:
-                    parts = line.split("\t")
-                    if len(parts) < 6:
-                        continue
-                    token = parts[2].lower()
-                    batch_tokens.append(grammar.DSToken(0, 0, None, token))
-                    max_token_length = max(len(token) + 1, max_token_length)
-                    token_output_file.write(token+"\n")
-                    if len(batch_tokens) >= batch_size or done + len(batch_tokens) >= total:
-                        batch_embedding_sequences, batch_lengths, _, _ = zip(*(
-                            self.featureset.embed_token_sequence(
-                                [token_object],
-                                max_token_length+1,
-                                embed_with_class=False)
-                            for token_object in batch_tokens))
-                        with self.graph.as_default():
-                            encoder_state, embeddings = self.session.run([
-                                    self.tf_encoder_final_state_per_batch,
-                                    self.tf_latent_means],
-                                feed_dict={
-                                    self.tf_corrupt_encoder_input: batch_embedding_sequences,
-                                    self.tf_timesteps_per_batch: batch_lengths
-                                })
-                        assert len(embeddings) == len(batch_tokens)
-                        token_embeddings = np.concatenate((token_embeddings, embeddings), axis=0)
-                        done += len(batch_tokens)
-                        batch_tokens = []
-                        max_token_length = 0
-                        super()._print_progress(done, total)
-            print("\r\n  ... done.")
-
+        with codecs.open(corpus_file_to_encode) as corpus_file:
+            total = sum(1 for _ in corpus_file)
+        done = 0
+        with codecs.open(corpus_file_to_encode) as corpus_file:
+            batch_tokens = []
+            max_token_length = 0
+            for line in corpus_file:
+                parts = line.split("\t")
+                if len(parts) < 6:
+                    continue
+                token = parts[2].lower()
+                batch_tokens.append(grammar.DSToken(0, 0, None, token))
+                max_token_length = max(len(token) + 1, max_token_length)
+                result_tokens.append(token)
+                if len(batch_tokens) >= batch_size or done + len(batch_tokens) >= total:
+                    batch_embedding_sequences, batch_lengths, _, _ = zip(*(
+                        self.featureset.embed_token_sequence(
+                            [token_object],
+                            max_token_length+1,
+                            embed_with_class=False)
+                        for token_object in batch_tokens))
+                    with self.graph.as_default():
+                        encoder_state, embeddings = self.session.run([
+                                self.tf_encoder_final_state_per_batch,
+                                self.tf_latent_means],
+                            feed_dict={
+                                self.tf_corrupt_encoder_input: batch_embedding_sequences,
+                                self.tf_timesteps_per_batch: batch_lengths
+                            })
+                    assert len(embeddings) == len(batch_tokens)
+                    token_embeddings = np.concatenate((token_embeddings, embeddings), axis=0)
+                    done += len(batch_tokens)
+                    batch_tokens = []
+                    max_token_length = 0
+                    super()._print_progress(done, total)
+        print("\r\n  ... done.")
         print("Building kd-tree ...")
         result_kdtree = cKDTree(token_embeddings)
         print("  ... done.")
-        kdtree_output_file_path = os.path.splitext(token_output_file_path)[0]+".kdtree"
-        print("Dumping tree to '{}' ...".format(kdtree_output_file_path))
-        with codecs.open(kdtree_output_file_path, "wb") as kdtree_output_file:
-            pickle.dump(result_kdtree, kdtree_output_file)
-        print("  ... done.")
+        return result_tokens, result_kdtree
 
     # ----------------------[ Private Methods ]----------------------
 
