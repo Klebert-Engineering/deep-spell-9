@@ -59,7 +59,7 @@
                     <h6>Predicted Categories</h6>
                     <div id="categories" class="table-wrapper"></div>
                 </div>
-                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto">
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto; display: none" id="lookup-panel">
                     <h6>FTS5 Lookup</h6>
                     <div id="lookup" class="table-wrapper"></div>
                 </div>
@@ -69,7 +69,7 @@
                     <h6>Completion</h6>
                     <div id="completion" class="table-wrapper"></div>
                 </div>
-                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto" id="correction-panel">
+                <div class="w3-row w3-card-4 w3-padding w3-white" style="overflow: auto; display: none" id="correction-panel">
                     <h6>Correction</h6>
                     <div id="correction" class="table-wrapper"></div>
                 </div>
@@ -78,7 +78,11 @@
     </div>
     <script>
         var host = "{{hostname}}";
+        var withCorrection = "{{with_correction}}";
         var bestSuggestion = "";
+
+        if(withCorrection)
+            $("#correction-panel").show();
 
         function extrapolator_heatmap_table(completions, color_map, font_size) {
             if(!font_size)
@@ -153,6 +157,31 @@
             return result
         }
 
+        function corrector_table(corrections_per_class, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            var result = "<table style='font-family: monospace; display: inline-block;'>\n";
+            Object.keys(corrections_per_class).forEach(function(classname) {
+                var font_color = "black";
+                if(color_map)
+                    font_color = color_map[classname];
+                var correctionStyle = " style='font-size:"+font_size+";" +
+                                      "color: "+font_color+";" +
+                                      "text-align: left'";
+                var origTokenStyle =  " style='font-size:"+font_size+";" +
+                                      "color: "+font_color+";" +
+                                      "text-align: right    '";
+                var tokens_for_class = corrections_per_class[classname]
+                if(tokens_for_class.length > 1) {
+                    result += "<tr><td"+origTokenStyle+">"+tokens_for_class[0]+"</td><td>&#8605;</td><td"+correctionStyle+">"+tokens_for_class[1][0]+"</td></tr>";
+                    for(var i = 2; i < tokens_for_class.length; ++i)
+                        result += "<tr><td></td><td></td><td"+correctionStyle+">"+tokens_for_class[i][0]+"</td></tr>";
+                }
+            });
+            result += "</table>\n";
+            return result;
+        }
+
         $('#query-input').keydown(function(e) {
             if(e.which === 9) {
                 $('#query-input')[0].value += bestSuggestion;
@@ -185,6 +214,7 @@
                     $("#prediction").removeClass("w3-text-gray")
                     $("#categories").html(discriminator_heatmap_table(result["discriminator"], 1, category_colors, "normal", user_input.split("")));
                     $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
+                    $("#correction").html(corrector_table(result["corrector"], category_colors));
                 })
             }
             else {
@@ -192,6 +222,7 @@
                 $("#prediction").addClass("w3-text-gray");
                 $("#categories").empty();
                 $("#completion").empty();
+                $("#correction").empty();
             }
         });
     </script>

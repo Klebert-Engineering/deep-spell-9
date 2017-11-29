@@ -44,7 +44,7 @@ class DSTokenLookupSpace:
         self.model = model
         token_file_path = os.path.splitext(path)[0] + ".tokens"
         kdtree_file_path = os.path.splitext(path)[0] + ".kdtree"
-        if not os.path.exists(path+".tokens") or not os.path.join(path+"kdtree"):
+        if not os.path.exists(token_file_path) or not os.path.exists(kdtree_file_path):
             print("Creating new DSTokenLookupSpace under '{}' for model '{}' and corpus '{}'!".format(
                 path, model.name(), path))
             self.tokens, self.kdtree = model.encode_corpus(path, encode_batch_size)
@@ -61,13 +61,13 @@ class DSTokenLookupSpace:
             self.tokens = [token.strip() for token in open(token_file_path, "r")]
             self.kdtree = pickle.load(open(kdtree_file_path, "rb"))
 
-    def match(self, token, k):
+    def match(self, token, k=3):
         """
         Obtain a list of @k nearest neighbors to the given @token's vector in this vector space.
         :param token: The token string which should be encoded, and whose nearset neighbor should be retrieved.
-        :return: An ascendingly ordered list of @k (distance, token) pairs.
+        :param k: The number of correction suggestions that should be retrieved.
+        :return: An ascendingly ordered list of @k (token, distance) pairs.
         """
         lookup_vec = self.model.encode(token)
-        _, query_result_indices = self.kdtree.query(lookup_vec, k=k)
-        for i in query_result_indices:
-            print(self.tokens[i], self.kdtree.data[i])
+        query_result_distance, query_result_indices = self.kdtree.query(lookup_vec, k=k)
+        return [(self.tokens[i], d) for i, d in zip(query_result_indices, query_result_distance)]

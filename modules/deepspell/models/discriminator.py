@@ -4,6 +4,8 @@
 
 import numpy as np
 import tensorflow as tf
+import math
+from collections import defaultdict
 
 # ============================[ Local Imports ]==========================
 
@@ -137,3 +139,35 @@ class DSLstmDiscriminator(modelbase.DSModelBase):
                 time_major=False)
 
         return tf_logical_predictions_per_timestep_per_batch
+
+
+# ======================[ Tokenization Utility ]=====================
+
+def tokenize_class_annotated_characters(characters, class_annotation_per_character, separator_fn=lambda ch: ch in " -,"):
+    """
+    Tokenizes a string based on class distribution per character into a set of per-class tokens.
+    The smallest token units are strings of characters where for no character except the first
+    the separator_fn predicate returns true. Token unit class appropriation is determined based
+    on the argmax of the character-wise cumulative neg-log-prob of the token unit for a given class.
+    :param characters: The string of characters which should be tokenized.
+    :param class_annotation_per_character: Output from DSLstmDiscriminator.discriminate(..., characters).
+    :param separator_fn:
+    :return: A map like {<classname>: <concatenated tokens>}. The <classname> keys are entirely drawn from
+     the class names mentioned in @class_annotation_per_character.
+    """
+    assert separator_fn
+    result_map = defaultdict(str)
+    current_token = ""
+    current_logprob_per_class = defaultdict(float)
+    for ch, classname_prob_list in zip(characters, class_annotation_per_character):
+        if separator_fn(ch) and current_logprob_per_class and current_token:
+            result_map[max(current_logprob_per_class, key=lambda cl: current_logprob_per_class[cl])] += current_token
+            current_token = ""
+            current_logprob_per_class.clear()
+        current_token += ch
+        for classname, prob in classname_prob_list:
+            current_logprob_per_class[classname] += math.log(prob)
+    # -- Make sure to add the last token too
+    if current_logprob_per_class and current_token:
+        result_map[max(current_logprob_per_class, key=lambda cl: current_logprob_per_class[cl])] += current_token
+    return result_map

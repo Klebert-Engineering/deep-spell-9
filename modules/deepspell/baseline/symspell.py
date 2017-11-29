@@ -8,16 +8,11 @@ class DSSymSpellBaseline:
 
     # ---------------------[ Interface Methods ]---------------------
 
-    def __init__(self, dawg_and_token_freq_file_path, max_edit_distance=2, verbose=1, bytes_per_index=3):
+    def __init__(self, dawg_and_token_freq_file_path, max_edit_distance=2, bytes_per_index=3):
         """
         :param dawg_and_token_freq_file_path: Should point to a .tokens and .refs file.
         :param max_edit_distance: The maximum edit distance to be anticipated.
-        :param verbose: Determines, how many values should be retrieved with each match() call.
-        0: top suggestion
-        1: all suggestions of smallest edit distance
-        2: all suggestions <= max_edit_distance (slower, no early termination)
         """
-        self.verbose = verbose
         self.max_edit_distance = max_edit_distance
         self.longest_word_length = 0
         self.bytes_per_index = bytes_per_index
@@ -36,18 +31,14 @@ class DSSymSpellBaseline:
         self.dictionary.load(dawg_and_token_freq_file_path+".refs")
         print("  ... done.")
 
-    def match(self, string, silent=False):
+    def match(self, string, k=3, silent=True):
         """
-        Returns list of suggested corrections for potentially incorrectly spelled word.
-
-        Option 1:
-        ['file', 'five', 'fire', 'fine', ...]
-
-        Option 2:
-        [('file', (5, 0)),
-         ('five', (67, 1)),
-         ('fire', (54, 1)),
-         ('fine', (17, 1))...]
+        Obtain a list of @k corrections for the given @string.
+        :param string: The token string which should be looked up, and whose
+         most closely spelled correct tokens should be retrieved.
+        :param k: The number of correction suggestions that should be retrieved.
+        :param silent: Flag that determines whether any debug info is printed.
+        :return: An ascendingly ordered list of @k (token, distance) pairs.
         """
         if (len(string) - self.longest_word_length) > self.max_edit_distance:
             if not silent:
@@ -65,7 +56,7 @@ class DSSymSpellBaseline:
             queue = queue[1:]
 
             # early exit
-            if ((self.verbose < 2) and (len(suggest_dict) > 0) and
+            if ((k < 2) and (len(suggest_dict) > 0) and
                     ((len(string) - len(q_item)) > min_suggest_len)):
                 break
 
@@ -102,7 +93,7 @@ class DSSymSpellBaseline:
 
                         # do not add words with greater edit distance if
                         # verbose setting not on
-                        if (self.verbose < 2) and (item_dist > min_suggest_len):
+                        if (k < 2) and (item_dist > min_suggest_len):
                             pass
                         elif item_dist <= self.max_edit_distance:
                             assert sc_item in self.dictionary  # should already be in dictionary if in suggestion list
@@ -114,7 +105,7 @@ class DSSymSpellBaseline:
                         # with different edit distances may be entered into
                         # suggestions; trim suggestion dictionary if verbose
                         # setting not on
-                        if self.verbose < 2:
+                        if k < 2:
                             suggest_dict = {k: v for k, v in suggest_dict.items() if v[1] <= min_suggest_len}
 
             # now generate deletes (e.g. a substring of string or of a delete)
@@ -124,7 +115,7 @@ class DSSymSpellBaseline:
 
             # do not add words with greater edit distance if verbose setting
             # is not on
-            if (self.verbose < 2) and ((len(string) - len(q_item)) > min_suggest_len):
+            if (k < 2) and ((len(string) - len(q_item)) > min_suggest_len):
                 pass
             elif (len(string) - len(q_item)) < self.max_edit_distance and len(q_item) > 1:
                 for c in range(len(q_item)):  # character index
@@ -135,28 +126,19 @@ class DSSymSpellBaseline:
 
         # queue is now empty: convert suggestions in dictionary to
         # list for output
-        if not silent and self.verbose != 0:
+        if not silent and k != 0:
             print("number of possible corrections: %i" % len(suggest_dict))
             print("  edit distance for deletions: %i" % self.max_edit_distance)
 
-        # output option 1
         # sort results by ascending order of edit distance and descending
-        # order of frequency
-        #     and return list of suggested word corrections only:
-        # return sorted(suggest_dict, key = lambda x:
-        #               (suggest_dict[x][1], -suggest_dict[x][0]))
+        # return list of suggestions with (correction, edit distance)
+        result_list = [(term_freq_dist_tuple[0], term_freq_dist_tuple[1][0])
+            for term_freq_dist_tuple in sorted(
+                suggest_dict.items(),
+                key=lambda term_freq_dist_tuple: (term_freq_dist_tuple[1][1], -term_freq_dist_tuple[1][0])
+            )[:k]]
 
-        # output option 2
-        # return list of suggestions with (correction, (frequency in corpus, edit distance)):
-        as_list = suggest_dict.items()
-        result_list = sorted(
-            as_list,
-            key=lambda term_freq_dist_tuple: (term_freq_dist_tuple[1][1], -term_freq_dist_tuple[1][0]))
-
-        if self.verbose == 0:
-            return result_list[0]
-        else:
-            return result_list
+        return result_list
 
     def best_word(self, s, silent=False):
         try:

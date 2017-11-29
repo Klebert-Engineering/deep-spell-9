@@ -13,7 +13,7 @@ from deepspell.token_lookup_space import DSTokenLookupSpace
 arg_parser = argparse.ArgumentParser("NDS AutoCompletion Quality Evaluator")
 arg_parser.add_argument(
     "--corpus",
-    default="corpora/deepspell_data_north_america_cities.1",
+    default="corpora/deepspell_data_north_america_cities.tsv",
     help="Path to the kdtree/token list from which correct matches should be drawn.")
 arg_parser.add_argument(
     "--encoder",
