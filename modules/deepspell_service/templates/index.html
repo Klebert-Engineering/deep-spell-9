@@ -79,10 +79,14 @@
     <script>
         var host = "{{hostname}}";
         var withCorrection = "{{with_correction}}";
+        var withFtsLookup = "{{with_ftslookup}}";
         var bestSuggestion = "";
 
         if(withCorrection)
             $("#correction-panel").show();
+
+        if(withFtsLookup)
+            $("#lookup-panel").show();
 
         function extrapolator_heatmap_table(completions, color_map, font_size) {
             if(!font_size)
@@ -182,6 +186,27 @@
             return result;
         }
 
+        function lookup_table(matches, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            var result = "<table style='font-family: serif; display: inline-block;'>\n";
+            matches.forEach(function(match){
+                result += "<tr>";
+                Object.keys(match).forEach(function(key) {
+                    var font_color = "black";
+                    if(color_map)
+                        font_color = color_map[key];
+                    var style = " style='font-size:"+font_size+";" +
+                                "color: "+font_color+";" +
+                                "text-align: left'";
+                    result += "<td"+style+">"+match[key]+"</td>";
+                });
+                result += "</tr>";
+            });
+            result += "</table>\n";
+            return result;
+        }
+
         $('#query-input').keydown(function(e) {
             if(e.which === 9) {
                 $('#query-input')[0].value += bestSuggestion;
@@ -191,6 +216,11 @@
                 return false;
             }
         });
+
+        var ftsLookupInProgress = false;
+        var ftsLookupNeeded = false;
+        var currentBestUserTokensPerClass = {};
+
         $('#query-input').on('input', function() {
             var user_input = $(this).val();
             var category_colors = {
@@ -214,7 +244,36 @@
                     $("#prediction").removeClass("w3-text-gray")
                     $("#categories").html(discriminator_heatmap_table(result["discriminator"], 1, category_colors, "normal", user_input.split("")));
                     $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
-                    $("#correction").html(corrector_table(result["corrector"], category_colors));
+
+                    currentBestUserTokensPerClass = {};
+                    Object.keys(result["corrector"]).forEach(function(classname){
+                        var tokensForClass = result["corrector"][classname]
+                        currentBestUserTokensPerClass[classname] = tokensForClass.length > 1 ? tokensForClass[1][0] : tokensForClass[0]
+                    });
+
+                    if(withCorrection)
+                        $("#correction").html(corrector_table(result["corrector"], category_colors));
+
+                    if(withFtsLookup) {
+                        if(ftsLookupInProgress) {
+                            ftsLookupNeeded = true
+                            return
+                        }
+                        (function ftsLookup() {
+                            ftsLookupNeeded = false
+                            ftsLookupInProgress = true
+                            var request = "/lookup?n=5";
+                            Object.keys(currentBestUserTokensPerClass).forEach(function(classname){
+                                request += "&"+classname+"="+currentBestUserTokensPerClass[classname]
+                            })
+                            $.get(request, function(result){
+                                $("#lookup").html(lookup_table(result, category_colors));
+                                ftsLookupInProgress = false
+                                if(ftsLookupNeeded)
+                                    ftsLookup()
+                            })
+                        })()
+                    }
                 })
             }
             else {
@@ -223,6 +282,8 @@
                 $("#categories").empty();
                 $("#completion").empty();
                 $("#correction").empty();
+                ftsLookupNeeded = false;
+                currentBestUserTokensPerClass = {};
             }
         });
     </script>

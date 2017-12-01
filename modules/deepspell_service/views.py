@@ -13,6 +13,7 @@ from deepspell.models.discriminator import DSLstmDiscriminator, tokenize_class_a
 from deepspell.models.encoder import DSVariationalLstmAutoEncoder
 from deepspell.token_lookup_space import DSTokenLookupSpace
 from deepspell.baseline.symspell import DSSymSpellBaseline
+from deepspell.ftsdb import DSFtsDatabaseConnection
 
 # ====================[ Initialization ]==================
 
@@ -22,13 +23,14 @@ corrector_model = None
 featureset = None
 hostname = ""
 lowercase = False
+fts_lookup_db = None
 
 
 def init(args):
     """
     Must be called from the importing file before app.run()!
     """
-    global discriminator_model, extrapolator_model, corrector_model, featureset, hostname, lowercase
+    global discriminator_model, extrapolator_model, corrector_model, featureset, hostname, lowercase, fts_lookup_db
     app.config.update(args)
     discriminator_model = DSLstmDiscriminator(args["discriminator"])
     extrapolator_model = DSLstmExtrapolator(args["extrapolator"], extrapolation_beam_count=6)
@@ -38,6 +40,8 @@ def init(args):
         corrector_model = DSVariationalLstmAutoEncoder(args["corrector"])
         corrector_model = DSTokenLookupSpace(corrector_model, args["corrector_files"])
     assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
+    if args["fts_db"]:
+        fts_lookup_db = DSFtsDatabaseConnection(**args["fts_db"])
     featureset = extrapolator_model.featureset
     hostname = args["hostname"]+":"+str(args["port"])
     lowercase = args["lowercase"]
@@ -52,7 +56,8 @@ def hello():
         "index.html",
         encoder_model_name=discriminator_model.name()+" / "+extrapolator_model.name(),
         hostname=hostname,
-        with_correction=corrector_model is not None
+        with_correction=corrector_model is not None,
+        with_ftslookup=fts_lookup_db is not None
     )
 
 
@@ -67,5 +72,18 @@ def extrapolate():
         if corrector_model:
             for classname, token in tokenization.items():
                 tokenization[classname] = [token]+corrector_model.match(token, k=3)
-        return fl.jsonify({"discriminator": classes, "extrapolator": completion, "corrector": tokenization})
+        return fl.jsonify({
+            "discriminator": classes,
+            "extrapolator": completion,
+            "corrector": tokenization})
     return fl.jsonify("{}")
+
+
+@app.route("/lookup")
+def lookup():
+    if not fts_lookup_db:
+        return fl.jsonify([])
+    criteria = {key: value for key, value in fl.request.args.items()}
+    print(criteria)
+    n = criteria.pop("n", 10)
+    return fl.jsonify(fts_lookup_db.lookup_fts_entries(limit=n, **criteria))
