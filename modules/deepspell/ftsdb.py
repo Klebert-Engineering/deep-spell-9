@@ -32,7 +32,6 @@ class DSFtsDatabaseConnection:
         self.conn = sqlite3.connect(self.path)
 
     def lookup_fts_entries(self, limit=10, **criteria):
-        print(criteria)
         keys = ["docid", "morton", "count"] + list(criteria.keys())
         statement = """
         select

@@ -65,10 +65,19 @@ def hello():
 def extrapolate():
     s = fl.request.args.get("s").lower().lstrip()
     if s:
-        classes = discriminator_model.discriminate(featureset, s)
-        best_classes = [col[0][0] for col in classes][:-1]
+        # -- 1.) Discriminate token classes, strip final EOL class
+        classes = discriminator_model.discriminate(featureset, s)[:-1]
+        best_classes = [col[0][0] for col in classes]
+        # -- 2.) Get completion alternatives
         completion = extrapolator_model.extrapolate(featureset, s, best_classes, 16)
-        tokenization = tokenize_class_annotated_characters(s, classes)
+        # -- 3.) Tokenize (with best completion appended if it completes the last token's class)
+        tokenization_classes = classes[:]
+        tokenization_string = s[:]
+        if completion[0][1][0] == classes[-1][0]:
+            tokenization_classes += [classes[-1]] * len(completion[0][0])
+            tokenization_string += completion[0][0]
+        tokenization = tokenize_class_annotated_characters(tokenization_string, tokenization_classes)
+        # -- 4.) Correct the tokens
         if corrector_model:
             for classname, token in tokenization.items():
                 tokenization[classname] = [token]+corrector_model.match(token, k=3)
