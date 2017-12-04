@@ -13,6 +13,7 @@ from deepspell.models.discriminator import DSLstmDiscriminator, tokenize_class_a
 from deepspell.models.encoder import DSVariationalLstmAutoEncoder
 from deepspell.token_lookup_space import DSTokenLookupSpace
 from deepspell.baseline.symspell import DSSymSpellBaseline
+from deepspell.ftsdb import DSFtsDatabaseConnection
 
 # ====================[ Initialization ]==================
 
@@ -22,13 +23,14 @@ corrector_model = None
 featureset = None
 hostname = ""
 lowercase = False
+fts_lookup_db = None
 
 
 def init(args):
     """
     Must be called from the importing file before app.run()!
     """
-    global discriminator_model, extrapolator_model, corrector_model, featureset, hostname, lowercase
+    global discriminator_model, extrapolator_model, corrector_model, featureset, hostname, lowercase, fts_lookup_db
     app.config.update(args)
     discriminator_model = DSLstmDiscriminator(args["discriminator"])
     extrapolator_model = DSLstmExtrapolator(args["extrapolator"], extrapolation_beam_count=6)
@@ -38,6 +40,8 @@ def init(args):
         corrector_model = DSVariationalLstmAutoEncoder(args["corrector"])
         corrector_model = DSTokenLookupSpace(corrector_model, args["corrector_files"])
     assert extrapolator_model.featureset.is_compatible(discriminator_model.featureset)
+    if args["fts_db"]:
+        fts_lookup_db = DSFtsDatabaseConnection(**args["fts_db"])
     featureset = extrapolator_model.featureset
     hostname = args["hostname"]+":"+str(args["port"])
     lowercase = args["lowercase"]
@@ -52,7 +56,8 @@ def hello():
         "index.html",
         encoder_model_name=discriminator_model.name()+" / "+extrapolator_model.name(),
         hostname=hostname,
-        with_correction=corrector_model is not None
+        with_correction=corrector_model is not None,
+        with_ftslookup=fts_lookup_db is not None
     )
 
 
@@ -60,12 +65,34 @@ def hello():
 def extrapolate():
     s = fl.request.args.get("s").lower().lstrip()
     if s:
-        classes = discriminator_model.discriminate(featureset, s)
-        best_classes = [col[0][0] for col in classes][:-1]
+        # -- 1.) Discriminate token classes, strip final EOL class
+        classes = discriminator_model.discriminate(featureset, s)[:-1]
+        best_classes = [col[0][0] for col in classes]
+        # -- 2.) Get completion alternatives
         completion = extrapolator_model.extrapolate(featureset, s, best_classes, 16)
-        tokenization = tokenize_class_annotated_characters(s, classes)
+        # -- 3.) Tokenize (with best completion appended if it completes the last token's class)
+        tokenization_classes = classes[:]
+        tokenization_string = s[:]
+        if completion[0][1][0] == classes[-1][0]:
+            tokenization_classes += [classes[-1]] * len(completion[0][0])
+            tokenization_string += completion[0][0]
+        tokenization = tokenize_class_annotated_characters(tokenization_string, tokenization_classes)
+        # -- 4.) Correct the tokens
         if corrector_model:
             for classname, token in tokenization.items():
                 tokenization[classname] = [token]+corrector_model.match(token, k=3)
-        return fl.jsonify({"discriminator": classes, "extrapolator": completion, "corrector": tokenization})
+        return fl.jsonify({
+            "discriminator": classes,
+            "extrapolator": completion,
+            "corrector": tokenization})
     return fl.jsonify("{}")
+
+
+@app.route("/lookup")
+def lookup():
+    if not fts_lookup_db:
+        return fl.jsonify([])
+    criteria = {key: value for key, value in fl.request.args.items()}
+    print(criteria)
+    n = criteria.pop("n", 10)
+    return fl.jsonify(fts_lookup_db.lookup_fts_entries(limit=n, **criteria))

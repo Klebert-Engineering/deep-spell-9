@@ -1,4 +1,5 @@
 corpora/deepspell*
+corpora/RoadFTS5_USA.nds
 !corpora/deepspell_minimal.tsv
 .idea
 modules/deepspell/__pycache__/*

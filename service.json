@@ -18,13 +18,31 @@
     "info for the model as necessary. Usually that will be a path to .tokens and .kdtree lookup files.",
     "This may be any path pointing to a valid deepspell.DSVariationalLstmAutoEncoder model, e.g.:",
     "  * models/deepsp_spell-v2_na-lower_lr003_dec70_bat2048_emb8_fw128_bw128_co256-256_dein256-256_drop75.json",
+    "  * corpora/deepspell_data_north_america_cities.1.tsv",
     "  -> Alternatively, you may also specify 'symspell' to use the baseline symspell DAWG impl.",
+    "  * deepspell_data_north_america_nozip_symspell2",
+
+    "Use `fts5_db` to optionally specify a path to an nds_sqlite3 database, upon which actual",
+    "queries with the user input should be performed. Requires python environment to be linked against nds_sqlite3!",
 
     "Use `lowercase` to designate, whether the API string inputs should be converted to lower-case."
   ],
   "discriminator": "models/deepsp_discr-v3_na-lower_lr003_dec50_bat3072_fw128-128_bw128.json",
   "extrapolator": "models/deepsp_extra-v2_na_lr003_dec50_bat3192_128-128-128.json",
   "corrector": "models/deepsp_spell-v2_na-lower_lr003_dec70_bat2048_emb8_fw128_bw128_co256-256_dein256-256_drop75.json",
-  "corrector_files": "corpora/deepspell_data_north_america_cities.1.tsv",
+  "corrector_files": "corpora/deepspell_data_north_america_cities.tsv",
+  "fts_db": {
+    "path": "corpora/RoadFTS5_USA.nds",
+    "fts_table_name": "nameFtsTable",
+    "docid_column_name": "namedObjectId",
+    "morton_column_name": "mortonCode",
+    "column_names": {
+      "ROAD": "criterionA",
+      "CITY": "criterionB",
+      "STATE": "criterionC",
+      "COUNTRY": "criterionD"
+    },
+    "class_specificity": ["COUNTRY", "STATE", "CITY", "ROAD"]
+  },
   "lowercase": true
 }

@@ -48,7 +48,7 @@ class DSTokenLookupSpace:
             print("Creating new DSTokenLookupSpace under '{}' for model '{}' and corpus '{}'!".format(
                 path, model.name(), path))
             self.tokens, self.kdtree = model.encode_corpus(path, encode_batch_size)
-            print("Dumping tokens to '{}' ...".format(kdtree_file_path))
+            print("Dumping tokens to '{}' ...".format(token_file_path))
             with codecs.open(token_file_path, "w") as token_output_file:
                 for token in self.tokens:
                     token_output_file.write(token+"\n")

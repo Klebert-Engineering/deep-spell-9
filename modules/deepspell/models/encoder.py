@@ -75,11 +75,12 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             return
         print("Encoding tokens from '{}' ...".format(corpus_file_to_encode))
         result_tokens = []
+        known_tokens = set()
         token_embeddings = np.empty(shape=(0, self.embedding_size), dtype=np.float32)
         with codecs.open(corpus_file_to_encode) as corpus_file:
             total = sum(1 for _ in corpus_file)
         done = 0
-        with codecs.open(corpus_file_to_encode) as corpus_file:
+        with codecs.open(corpus_file_to_encode, "r") as corpus_file:
             batch_tokens = []
             max_token_length = 0
             for line in corpus_file:
@@ -87,9 +88,13 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                 if len(parts) < 6:
                     continue
                 token = parts[2].lower()
-                batch_tokens.append(grammar.DSToken(0, 0, None, token))
-                max_token_length = max(len(token) + 1, max_token_length)
-                result_tokens.append(token)
+                if token not in known_tokens:
+                    known_tokens.add(token)
+                    batch_tokens.append(grammar.DSToken(0, 0, None, token))
+                    max_token_length = max(len(token) + 1, max_token_length)
+                    result_tokens.append(token)
+                else:
+                    done += 1
                 if len(batch_tokens) >= batch_size or done + len(batch_tokens) >= total:
                     batch_embedding_sequences, batch_lengths, _, _ = zip(*(
                         self.featureset.embed_token_sequence(
@@ -111,7 +116,7 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                     batch_tokens = []
                     max_token_length = 0
                     super()._print_progress(done, total)
-        print("\r\n  ... done.")
+        print("  ... done.")
         print("Building kd-tree ...")
         result_kdtree = cKDTree(token_embeddings)
         print("  ... done.")

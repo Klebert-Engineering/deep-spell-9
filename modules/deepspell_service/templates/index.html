@@ -79,10 +79,14 @@
     <script>
         var host = "{{hostname}}";
         var withCorrection = "{{with_correction}}";
+        var withFtsLookup = "{{with_ftslookup}}";
         var bestSuggestion = "";
 
         if(withCorrection)
             $("#correction-panel").show();
+
+        if(withFtsLookup)
+            $("#lookup-panel").show();
 
         function extrapolator_heatmap_table(completions, color_map, font_size) {
             if(!font_size)
@@ -117,7 +121,7 @@
             return result
         }
 
-        function discriminator_heatmap_table(col_first_data, skip_last_col, color_map, font_size, header_labels, max_rows) {
+        function discriminator_heatmap_table(col_first_data, color_map, font_size, header_labels, max_rows) {
             if(!font_size)
                 font_size = "normal";
             if(!col_first_data.length)
@@ -135,7 +139,7 @@
             }
             for(var row = 0; row < col_first_data[0].length && row < max_rows; ++row) {
                 result += "<tr>";
-                for(var col = 0; col < col_first_data.length-skip_last_col; ++col) {
+                for(var col = 0; col < col_first_data.length; ++col) {
                     var font_color = "black";
 
                     // Find maximum value in the column
@@ -182,6 +186,42 @@
             return result;
         }
 
+        function lookup_table(matches, color_map, font_size) {
+            if(!font_size)
+                font_size = "normal";
+            var result = "<table class='w3-table w3-bordered' style='font-family: monospace; width: auto; display: inline-block;'>\n";
+            var headerRowWritten = false
+            matches.forEach(function(match){
+                if(!headerRowWritten) {
+                    headerRowWritten = true;
+                    result += "<hr>"
+                    Object.keys(match).forEach(function(key) {
+                        var font_color = "black";
+                        if(color_map)
+                            font_color = color_map[key];
+                        var style = " style='font-size:"+font_size+";" +
+                                    "color: "+font_color+";" +
+                                    "text-align: left'";
+                        result += "<td"+style+">"+key.toUpperCase()+"</td>";
+                    });
+                    result += "</hr>"
+                }
+                result += "<tr>";
+                Object.keys(match).forEach(function(key) {
+                    var font_color = "black";
+                    if(color_map)
+                        font_color = color_map[key];
+                    var style = " style='font-size:"+font_size+";" +
+                                "color: "+font_color+";" +
+                                "text-align: left'";
+                    result += "<td"+style+">"+match[key]+"</td>";
+                });
+                result += "</tr>";
+            });
+            result += "</table>\n";
+            return result;
+        }
+
         $('#query-input').keydown(function(e) {
             if(e.which === 9) {
                 $('#query-input')[0].value += bestSuggestion;
@@ -191,6 +231,11 @@
                 return false;
             }
         });
+
+        var ftsLookupInProgress = false;
+        var ftsLookupNeeded = false;
+        var currentBestUserTokensPerClass = {};
+
         $('#query-input').on('input', function() {
             var user_input = $(this).val();
             var category_colors = {
@@ -212,9 +257,38 @@
                     }
                     $("#prediction").html(user_input + "<b>" + bestSuggestion + "</b>")
                     $("#prediction").removeClass("w3-text-gray")
-                    $("#categories").html(discriminator_heatmap_table(result["discriminator"], 1, category_colors, "normal", user_input.split("")));
+                    $("#categories").html(discriminator_heatmap_table(result["discriminator"], category_colors, "normal", user_input.split("")));
                     $("#completion").html(extrapolator_heatmap_table(result["extrapolator"], category_colors));
-                    $("#correction").html(corrector_table(result["corrector"], category_colors));
+
+                    currentBestUserTokensPerClass = {};
+                    Object.keys(result["corrector"]).forEach(function(classname){
+                        var tokensForClass = result["corrector"][classname]
+                        currentBestUserTokensPerClass[classname] = tokensForClass.length > 1 ? tokensForClass[1][0] : tokensForClass[0]
+                    });
+
+                    if(withCorrection)
+                        $("#correction").html(corrector_table(result["corrector"], category_colors));
+
+                    if(withFtsLookup) {
+                        if(ftsLookupInProgress) {
+                            ftsLookupNeeded = true
+                            return
+                        }
+                        (function ftsLookup() {
+                            ftsLookupNeeded = false
+                            ftsLookupInProgress = true
+                            var request = "/lookup?n=5";
+                            Object.keys(currentBestUserTokensPerClass).forEach(function(classname){
+                                request += "&"+classname+"="+currentBestUserTokensPerClass[classname]
+                            })
+                            $.get(request, function(result){
+                                $("#lookup").html(lookup_table(result, category_colors));
+                                ftsLookupInProgress = false
+                                if(ftsLookupNeeded)
+                                    ftsLookup()
+                            })
+                        })()
+                    }
                 })
             }
             else {
@@ -223,6 +297,8 @@
                 $("#categories").empty();
                 $("#completion").empty();
                 $("#correction").empty();
+                ftsLookupNeeded = false;
+                currentBestUserTokensPerClass = {};
             }
         });
     </script>

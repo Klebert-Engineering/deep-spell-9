@@ -1,5 +1,5 @@
-deep-spell-v0.9
-===============
+deep-spell-v1.0rc
+=================
 
 The DeepSpell project contains implementations of various neural algorithms,
 which enable natural auto-suggestion via deep neural networks.
@@ -11,9 +11,12 @@ Mandatory:
 * tensorflow >= 1.3
 * unidecode
 * flask
+* scipy
 
 Optional:
 * pygtrie (for FTS5 baseline)
+* hat_trie (for generating Symspell DAWG)
+* DAWG (for generating/loading Symspell DAWG)
 
 ## Scripts
 
