@@ -30,7 +30,8 @@
   "discriminator": "models/deepsp_discr-v3_na-lower_lr003_dec50_bat3072_fw128-128_bw128.json",
   "extrapolator": "models/deepsp_extra-v2_na_lr003_dec50_bat3192_128-128-128.json",
   "corrector": "models/deepsp_spell-v2_na-lower_lr003_dec70_bat2048_emb8_fw128_bw128_co256-256_dein256-256_drop75.json",
-  "corrector_files": "corpora/deepspell_data_north_america_cities.tsv",
+  "corrector_files": "corpora/deepspell_data_north_america_nozip_v2.tsv",
+  "_fts_db": null,
   "fts_db": {
     "path": "corpora/RoadFTS5_USA.nds",
     "fts_table_name": "nameFtsTable",

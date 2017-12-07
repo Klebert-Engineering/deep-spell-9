@@ -60,7 +60,7 @@ class DSFtsDatabaseConnection:
                 for criterion in criteria),
             fts_table_name=self.fts_table_name,
             criteria_expression=" ".join(
-                "{}: \"^{}\"".format(self.column_name_for_class[criterion], value)
+                "{}: \"{}\"".format(self.column_name_for_class[criterion], value)
                 for criterion, value in criteria.items()),
             criteria_length_sum="+".join(
                 "length({})".format(self.column_name_for_class[criterion])

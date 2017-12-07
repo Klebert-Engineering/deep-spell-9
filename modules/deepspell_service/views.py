@@ -3,13 +3,15 @@ import os
 import sys
 
 import flask as fl
+import time
 
+from collections import defaultdict
 from . import app
 
 # ====================[ Local Imports ]===================
 
 from deepspell.models.extrapolator import DSLstmExtrapolator
-from deepspell.models.discriminator import DSLstmDiscriminator, tokenize_class_annotated_characters
+from deepspell.models.discriminator import DSLstmDiscriminator, tokenize_class_annotated_characters, extract_best_class_sequence
 from deepspell.models.encoder import DSVariationalLstmAutoEncoder
 from deepspell.token_lookup_space import DSTokenLookupSpace
 from deepspell.baseline.symspell import DSSymSpellBaseline
@@ -64,27 +66,49 @@ def hello():
 @app.route("/extrapolate")
 def extrapolate():
     s = fl.request.args.get("s").lower().lstrip()
+    timings = {}
+
+    def stoptime(key):
+        if key in timings:
+            timings[key] = time.time()-timings[key]
+        else:
+            timings[key] = time.time()
+
     if s:
         # -- 1.) Discriminate token classes, strip final EOL class
+        stoptime("classification")
         classes = discriminator_model.discriminate(featureset, s)[:-1]
-        best_classes = [col[0][0] for col in classes]
+        best_classes = extract_best_class_sequence(s, classes)
+        stoptime("classification")
+
         # -- 2.) Get completion alternatives
+        stoptime("completion")
         completion = extrapolator_model.extrapolate(featureset, s, best_classes, 16)
+        stoptime("completion")
+
         # -- 3.) Tokenize (with best completion appended if it completes the last token's class)
         tokenization_classes = classes[:]
         tokenization_string = s[:]
-        if completion[0][1][0] == classes[-1][0]:
-            tokenization_classes += [classes[-1]] * len(completion[0][0])
+        if completion[0][1][0] == best_classes[-1]:
+            extrapolation_class_distribution = [
+                [cl, 1. if cl == best_classes[-1] else 0.]
+                for cl in featureset.class_ids]
+            tokenization_classes += [extrapolation_class_distribution] * len(completion[0][0])
             tokenization_string += completion[0][0]
         tokenization = tokenize_class_annotated_characters(tokenization_string, tokenization_classes)
+
         # -- 4.) Correct the tokens
+        stoptime("correction")
         if corrector_model:
             for classname, token in tokenization.items():
                 tokenization[classname] = [token]+corrector_model.match(token, k=3)
+        stoptime("correction")
+
         return fl.jsonify({
             "discriminator": classes,
             "extrapolator": completion,
-            "corrector": tokenization})
+            "corrector": tokenization,
+            "timings": timings})
     return fl.jsonify("{}")
 
 
