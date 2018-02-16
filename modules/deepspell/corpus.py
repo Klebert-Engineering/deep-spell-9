@@ -8,13 +8,15 @@ from collections import defaultdict
 
 import numpy as np
 
-from deepspell import featureset, grammar
+from deepspell import featureset, grammar, ftsdb
 
 
 # ==========================[ Local Imports ]========================
 
 
 # ============================[ DSCorpus ]===========================
+from deepspell.ftsdb import DSFtsDatabaseConnection
+
 
 class DSCorpus:
     """
@@ -32,10 +34,16 @@ class DSCorpus:
         self.data = defaultdict(lambda: [])
         token_for_id = {}
 
-        with codecs.open(path, encoding='utf-8') as corpus_file:
+        with DSFtsDatabaseConnection(path=path) if path.strip().lower().endswith(".nds") else \
+                codecs.open(path, encoding='utf-8') as corpus_file:
+
             print("Loading {} ...".format(path))
             for entry in corpus_file:
-                parts = entry.strip().split("\t")
+                if isinstance(entry, str):
+                    parts = entry.strip().split("\t")
+                else:
+                    assert isinstance(entry, tuple) or isinstance(entry, list)
+                    parts = entry
                 if len(parts) >= 6:
                     class_id = class_ids[parts[0]]
                     token_id = int(parts[1])
@@ -89,7 +97,7 @@ class DSCorpus:
         5. If `corrupt` is true, then a second sample length vector per corrupted
          sample like [actual_sample_length] is returned. Otherwise, the 5th return value is [None].
         :param batch_size: The number of sample sequences to return.
-        :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.FtsGrammar.
+        :param sample_grammar: The grammar to use for sample generation. Must be one of grammar.DSGrammar.
         :param epoch_leftover_indices: The iterator to use for sample selection.
          Should be either None or previous 3rd return value.
          A (return) value of None or [] indicates the start of a new epoch.
@@ -107,7 +115,7 @@ class DSCorpus:
         :param embed_with_class: Flag to indicate whether the returned character feature embeddings should
          also contain logical features, or lexical features only.
         """
-        assert (isinstance(sample_grammar, grammar.DSGrammar))
+        assert isinstance(sample_grammar, grammar.DSGrammar)
         # Make sure that training document order is randomized
         if not epoch_leftover_indices:
             epoch_leftover_indices = [

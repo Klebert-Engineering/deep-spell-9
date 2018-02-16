@@ -18,11 +18,12 @@ class DSFtsDatabaseConnection:
 
     def __init__(self, **configuration):
         self.path = configuration.pop("path", "corpora/RoadFTS5_USA.nds")
-        assert os.path.exists(self.path) and os.path.splitext(self.path)[1] == ".nds"
+        assert os.path.exists(self.path) and os.path.splitext(self.path)[1].lower() == ".nds"
         self.fts_table_name = configuration.pop("fts_table_name", "nameFtsTable")
         self.docid_column_name = configuration.pop("docid_column_name", "namedObjectId")
         self.morton_column_name = configuration.pop("morton_column_name", "mortonCode")
         self.class_specificity = configuration.pop("class_specificity", ["COUNTRY", "STATE", "CITY", "ROAD"])
+        self.training_data_view_name = configuration.pop("training_data_view_name", "training_data")
         self.column_name_for_class = defaultdict(lambda: "criterionH", **configuration.pop("column_names", {
             "ROAD": "criterionA",
             "CITY": "criterionB",
@@ -31,18 +32,25 @@ class DSFtsDatabaseConnection:
         }))
         self.conn = sqlite3.connect(self.path)
 
+    def __enter__(self):
+        return self.conn.execute("select * from `{training_data_view_name}`".format(
+            training_data_view_name=self.training_data_view_name))
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
     def lookup_fts_entries(self, limit=10, **criteria):
         keys = ["docid", "morton", "count"] + list(criteria.keys())
         statement = """
         select
-            {docid_column_name} as docid,
-            {morton_column_name} as morton,
+            `{docid_column_name}` as docid,
+            `{morton_column_name}` as morton,
             count({most_specific_criterion}) as group_size,
             {criteria_aliases}
         from
-            {fts_table_name}
+            `{fts_table_name}`
         where
-            {fts_table_name} match '{criteria_expression}'
+            `{fts_table_name}` match '{criteria_expression}'
         group by
             {most_specific_criterion}
         order by
