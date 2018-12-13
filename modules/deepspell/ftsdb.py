@@ -2,7 +2,11 @@
 
 # =============================[ Imports ]===========================
 
-import sqlite3
+try:
+    import sqlite3
+except ImportError as e:
+    import pysqlite3 as sqlite3
+
 import os
 from collections import defaultdict
 
