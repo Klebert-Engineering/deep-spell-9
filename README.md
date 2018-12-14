@@ -1,7 +1,7 @@
 deep-spell-v1.0rc
 =================
 
-The DeepSpell project contains implementations of various neural algorithms,
+The Deep-Spell-9 project contains implementations of various neural algorithms,
 which enable natural auto-suggestion via deep neural networks.
 
 ## Dependencies
