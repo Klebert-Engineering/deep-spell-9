@@ -1,4 +1,4 @@
-# (C) 2017 Klebert Engineering GmbH
+# (C) 2018-present Klebert Engineering
 
 import codecs
 from dawg import BytesDAWG

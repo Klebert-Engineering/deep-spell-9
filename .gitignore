@@ -3,6 +3,6 @@ corpora/RoadFTS5_USA.nds
 corpora/RoadFTS5_EU.NDS
 !corpora/deepspell_minimal.tsv
 .idea
-modules/deepspell/__pycache__/*
-modules/deepspell_service/__pycache__/*
-modules/deepspell_optimization/__pycache__/*
+__pycache__
+logs
+models/checkpoint

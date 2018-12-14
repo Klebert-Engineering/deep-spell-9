@@ -1,4 +1,4 @@
-# (C) 2017 Klebert Engineering GmbH
+# (C) 2018-present Klebert Engineering
 
 __all__ = ['inference', 'corpus', 'featureset', 'grammar', 'baseline']
 
