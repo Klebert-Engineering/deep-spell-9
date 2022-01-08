@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 image_name="ds9"
 version=$(head -n 1 "VERSION")
 push=""
@@ -56,4 +58,3 @@ if [[ -n "$test" ]]; then
     "$image_name:$version" \
     "//ds9/serve.bash"
 fi
-py

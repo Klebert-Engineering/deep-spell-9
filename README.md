@@ -3,17 +3,17 @@ Deep-Spell-9
 
 ## About
 
-Deep-Spell-9 enables natural auto-completion and matching of geographic queries via deep neural networks.
+Deep-Spell-9 enables neural auto-completion and matching of geographic queries via deep neural networks.
 
 ![Figure 1](docs/figure.png)
 
 ## Web service
 
-An interactive user interface is provided which allows
+A service component is provided which allows
 you to run Deep-Spell-9 within an interactive browser UI.
 Use the `service.json` config file to configure the used models.
 
-You have to options to launch the service:
+You have two options to launch the service:
 
 1. Via a local Python setup: Clone the repo, and run
    
