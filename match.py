@@ -35,7 +35,7 @@ else:
 print("""
 =============================================================
   This is the `deepspell` LSTM DNN spell-match demo for NDS
-             (C) 2017 Klebert Engineering GmbH
+               (C) 2017 Klebert Engineering
 =============================================================
 
 Usage:

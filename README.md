@@ -1,28 +1,41 @@
-deep-spell-v1.0rc
-=================
+Deep-Spell-9
+============
 
-The Deep-Spell-9 project contains implementations of various neural algorithms,
-which enable natural auto-suggestion via deep neural networks.
+## About
 
-## Dependencies
+Deep-Spell-9 enables natural auto-completion and matching of geographic queries via deep neural networks.
 
-Mandatory:
-* python 3.x
-* tensorflow >= 1.3
-* unidecode
-* flask
-* scipy
+![Figure 1](docs/figure.png)
 
-Optional:
-* pygtrie (for FTS5 baseline)
-* hat_trie (for generating Symspell DAWG)
-* DAWG (for generating/loading Symspell DAWG)
+## Web service
 
-## Scripts
+An interactive user interface is provided which allows
+you to run Deep-Spell-9 within an interactive browser UI.
+Use the `service.json` config file to configure the used models.
 
-### `python3 service.py`
+You have to options to launch the service:
 
-Launches the Deep Spell demonstrator web interface from the
-`modules/deepspell_service` flask module. Use the adjacent
-`service.json` config file to set the served port and models,
-among other options.
+1. Via a local Python setup: Clone the repo, and run
+   
+   ```bash
+   cd [clone-directory]
+   pip install -e .
+   # Port defaults to 8091
+   ./serve.bash [port]
+   ```
+   
+2. Via Docker:
+
+   ```bash
+   docker run --rm -it -p 8091:8091 \
+      "ghcr.io/klebert-engineering/ds9:latest" \
+      "//ds9/serve.bash"
+   ```
+   
+   **Note:** The default `service.json` in the image does not
+   provide an FTS database to match a query to ranked results,
+   so you will only be able to see the classifier and completer
+   components in action.
+
+After the service is started, open localhost on the
+specified port in any browser ([localhost:8091](http://localhost:8091)) by default.

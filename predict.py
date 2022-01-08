@@ -22,7 +22,7 @@ featureset = extrapolator_model.featureset
 print("""
 =============================================================
 This is the `deepspell` LSTM DNN auto-completion demo for NDS
-             (C) 2017 Klebert Engineering GmbH
+              (C) 2017 Klebert Engineering
 =============================================================
 
 Usage:

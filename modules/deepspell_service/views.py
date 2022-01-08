@@ -45,7 +45,6 @@ def init(args):
     if args["fts_db"]:
         fts_lookup_db = DSFtsDatabaseConnection(**args["fts_db"])
     featureset = extrapolator_model.featureset
-    hostname = args["hostname"]+":"+str(args["port"])
     lowercase = args["lowercase"]
 
 

@@ -1,0 +1,5 @@
+tensorflow==1.9
+unidecode
+flask
+scipy
+DAWG

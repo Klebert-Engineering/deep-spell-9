@@ -6,3 +6,5 @@ corpora/RoadFTS5_EU.NDS
 __pycache__
 logs
 models/checkpoint
+*.egg-info
+venv/

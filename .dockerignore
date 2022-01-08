@@ -1,0 +1,7 @@
+venv/
+docs/
+corpora/
+README.md
+deploy.bash
+LICENSE
+*.egg-info
