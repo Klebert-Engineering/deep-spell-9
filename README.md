@@ -28,7 +28,7 @@ You have two options to launch the service:
 
    ```bash
    docker run --rm -it -p 8091:8091 \
-      "ghcr.io/klebert-engineering/ds9:latest" \
+      "ghcr.io/klebert-engineering/ds9:2023.1" \
       "//ds9/serve.bash"
    ```
    
@@ -39,3 +39,15 @@ You have two options to launch the service:
 
 After the service is started, open localhost on the
 specified port in any browser ([localhost:8091](http://localhost:8091)) by default.
+
+## Web Service With FTS Database Lookup
+
+Download licensed NDS FTS database files according to your coverage needs, and paste them under `corpora/`. Then launch the Dockerized service as follows:
+
+```bash
+docker run --rm -it -p 8091:8091 \
+   -v ./corpora://ds9/corpora \
+   --env SERVICE_CONFIG="corpora/service-with-fts5.json" \
+   "ghcr.io/klebert-engineering/ds9:2023.1" \
+   "//ds9/serve.bash"
+```

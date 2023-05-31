@@ -1,5 +1,5 @@
 tensorflow==1.9
 unidecode
 flask
-scipy
+scipy==1.1.0
 DAWG
