@@ -14,7 +14,8 @@ except ImportError:
     cKDTree = None
     pass
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 import numpy as np
 
 # ============================[ Local Imports ]==========================
@@ -147,35 +148,47 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
                 tf.float32,
                 [None, None, self.num_lexical_features])
 
-            tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                self.encoder_bw_state_size_per_layer])
-            tf_encoder_forward_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                self.encoder_fw_state_size_per_layer])
-            tf_encoder_combine_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                self.encoder_combine_state_size_per_layer])
+            # Create backward LSTM layers
+            tf_encoder_backward_cells = [
+                tf.keras.layers.LSTM(hidden_state_size, return_sequences=True, return_state=True)
+                for hidden_state_size in self.encoder_bw_state_size_per_layer
+            ]
+            
+            # Create forward LSTM layers
+            tf_encoder_forward_cells = [
+                tf.keras.layers.LSTM(hidden_state_size, return_sequences=True, return_state=True)
+                for hidden_state_size in self.encoder_fw_state_size_per_layer
+            ]
+            
+            # Create combine LSTM layers
+            tf_encoder_combine_cells = [
+                tf.keras.layers.LSTM(hidden_state_size, return_sequences=True, return_state=True)
+                for hidden_state_size in self.encoder_combine_state_size_per_layer
+            ]
 
-            # -- Create a dynamically unrolled RNN to produce the character category discrimination
-            tf_preflight_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=tf_encoder_forward_cell,
-                cell_bw=tf_encoder_backward_cell,
-                inputs=tf_corrupt_encoder_input,
-                dtype=tf.float32,
-                sequence_length=self.tf_timesteps_per_batch)
-
-            _, tf_final_state_tuple_stacks = tf.nn.dynamic_rnn(
-                cell=tf_encoder_combine_cell,
-                inputs=tf.concat(tf_preflight_outputs+(tf_corrupt_encoder_input,), axis=2),
-                dtype=tf.float32,
-                sequence_length=self.tf_timesteps_per_batch
-            )
-
-        tf_final_encoder_states_per_batch = tf.concat([
-            state
-            for state_tuple in tf_final_state_tuple_stacks
-            for state in state_tuple], axis=1)
+            # Process forward and backward passes
+            forward_outputs = tf_corrupt_encoder_input
+            backward_outputs = tf.reverse(tf_corrupt_encoder_input, axis=[1])
+            
+            # Forward pass through stacked LSTM
+            for cell in tf_encoder_forward_cells:
+                forward_outputs, forward_state_h, forward_state_c = cell(forward_outputs)
+            
+            # Backward pass through stacked LSTM
+            for cell in tf_encoder_backward_cells:
+                backward_outputs, backward_state_h, backward_state_c = cell(backward_outputs)
+            backward_outputs = tf.reverse(backward_outputs, axis=[1])
+            
+            # Combine forward and backward outputs
+            combined_outputs = tf.concat([forward_outputs, backward_outputs, tf_corrupt_encoder_input], axis=2)
+            
+            # Final processing through combine layers
+            for cell in tf_encoder_combine_cells:
+                combined_outputs, combine_state_h, combine_state_c = cell(combined_outputs)
+            
+            # Collect final states
+            final_states = [combine_state_h, combine_state_c]
+            tf_final_encoder_states_per_batch = tf.concat(final_states, axis=1)
 
         return tf_corrupt_encoder_input, tf_final_encoder_states_per_batch
 

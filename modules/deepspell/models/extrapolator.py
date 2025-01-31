@@ -3,12 +3,151 @@
 # ===============================[ Imports ]=============================
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
 # ============================[ Local Imports ]==========================
 
 from deepspell import featureset
 from deepspell.models import modelbase
+
+# =======================[ Custom RNN Cells ]=======================
+
+class KerasLSTMCell:
+    """A basic LSTM cell implementation compatible with TF1.x dynamic_rnn."""
+    
+    def __init__(self, units, cell_idx=0):
+        self._num_units = units
+        self._cell_idx = cell_idx
+
+    @property
+    def state_size(self):
+        return (self._num_units, self._num_units)  # (c, h)
+
+    @property
+    def output_size(self):
+        return self._num_units
+
+    def zero_state(self, batch_size, dtype):
+        c = tf.zeros([batch_size, self._num_units], dtype=dtype)
+        h = tf.zeros([batch_size, self._num_units], dtype=dtype)
+        return (c, h)
+
+    def __call__(self, inputs, state=None, states=None, scope=None):
+        state = state if state is not None else states
+        with tf.variable_scope("basic_lstm_cell"):
+            c, h = state
+            
+            # Get the concatenated input
+            concat = tf.concat([inputs, h], axis=1)
+            input_dim = concat.shape[-1]
+            
+            # Create variables if they don't exist
+            kernel = tf.get_variable(
+                "kernel",
+                shape=[input_dim, self._num_units * 4],
+                initializer=tf.glorot_uniform_initializer()
+            )
+            bias = tf.get_variable(
+                "bias",
+                shape=[self._num_units * 4],
+                initializer=tf.zeros_initializer()
+            )
+            
+            # Apply weights
+            gates = tf.matmul(concat, kernel) + bias
+            
+            # Split gates
+            i, j, f, o = tf.split(gates, 4, axis=1)
+            
+            # Apply activations
+            i = tf.sigmoid(i)  # input gate
+            j = tf.tanh(j)     # new input
+            f = tf.sigmoid(f)  # forget gate
+            o = tf.sigmoid(o)  # output gate
+            
+            # Compute new cell state
+            new_c = f * c + i * j
+            
+            # Compute new hidden state
+            new_h = o * tf.tanh(new_c)
+            
+            return new_h, (new_c, new_h)
+
+class MultiRNNCell:
+    """A multi-layer RNN cell implementation compatible with TF1.x dynamic_rnn."""
+    
+    def __init__(self, num_units, num_layers):
+        self._cells = [
+            KerasLSTMCell(units=num_units, cell_idx=i)
+            for i in range(num_layers)
+        ]
+
+    @property
+    def state_size(self):
+        return tuple(cell.state_size for cell in self._cells)
+
+    @property
+    def output_size(self):
+        return self._cells[-1].output_size
+
+    def zero_state(self, batch_size, dtype):
+        return tuple(cell.zero_state(batch_size, dtype) for cell in self._cells)
+
+    def __call__(self, inputs, state=None, states=None, scope=None):
+        state = state if state is not None else states
+        cur_inp = inputs
+        new_states = []
+        for i, (cell, cell_state) in enumerate(zip(self._cells, state)):
+            with tf.variable_scope(f"cell_{i}"):
+                cur_inp, new_state = cell(cur_inp, cell_state)
+                new_states.append(new_state)
+        return cur_inp, tuple(new_states)
+
+class OutputProjectionWrapper:
+    """An output projection wrapper compatible with TF1.x dynamic_rnn."""
+    
+    def __init__(self, cell, output_size):
+        self._cell = cell
+        self._output_size_value = output_size
+
+    @property
+    def state_size(self):
+        return self._cell.state_size
+
+    @property
+    def output_size(self):
+        return self._output_size_value
+
+    def zero_state(self, batch_size, dtype):
+        return self._cell.zero_state(batch_size, dtype)
+
+    def __call__(self, inputs, state=None, states=None, scope=None):
+        state = state if state is not None else states
+        with tf.variable_scope("output_projection_wrapper"):
+            with tf.variable_scope("multi_rnn_cell"):
+                output, new_state = self._cell(inputs, state)
+            
+            # Create projection variables
+            kernel = tf.get_variable(
+                "kernel",
+                shape=[self._cell.output_size, self._output_size_value],
+                initializer=tf.glorot_uniform_initializer()
+            )
+            bias = tf.get_variable(
+                "bias",
+                shape=[self._output_size_value],
+                initializer=tf.zeros_initializer()
+            )
+            
+            projected_output = tf.matmul(output, kernel) + bias
+            return projected_output, new_state
+
+def create_rnn_cell(num_units, num_layers, output_size):
+    """Creates a multi-layer RNN cell with output projection."""
+    with tf.variable_scope("rnn"):
+        multi_cell = MultiRNNCell(num_units, num_layers)
+        return OutputProjectionWrapper(multi_cell, output_size)
 
 # =======================[ LSTM Extrapolator Model ]=====================
 
@@ -128,13 +267,13 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
     def _extrapolator(self):
         # -- Input placeholders: batch of training sequences and their lengths
         with tf.name_scope("extrapolator"):
-
             # -- LSTM cell for prediction
-            tf_extrapolator_cell = tf.contrib.rnn.OutputProjectionWrapper(
-                tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
-                    self.state_size_per_layer
-                ]),
+            num_units = self.state_size_per_layer[0]  # All layers have same size
+            num_layers = len(self.state_size_per_layer)
+            
+            multi_cell = MultiRNNCell(num_units, num_layers)
+            tf_extrapolator_cell = OutputProjectionWrapper(
+                multi_cell,
                 self.num_logical_features + self.num_lexical_features
             )
             extrapolator_initial_state = tf_extrapolator_cell.zero_state(
@@ -146,7 +285,9 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                 inputs=self.tf_lexical_logical_embeddings_per_timestep_per_batch,
                 sequence_length=self.tf_timesteps_per_batch,
                 initial_state=extrapolator_initial_state,
-                time_major=False)
+                dtype=tf.float32,
+                time_major=False,
+                scope="rnn")
 
         return (
             tf_extrapolator_cell,
@@ -158,7 +299,6 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
             tf_maximum_prediction_length = tf.placeholder(tf.int32)
             tf_eol_class_idx = tf.placeholder(tf.int32)
             tf_stepwise_beam_output = tf.TensorArray(dtype=tf.int32, size=1, dynamic_size=True)
-            # tf_stepwise_debug_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length-1)
             tf_beam_lexical_lookup_idx = tf.constant([
                 (n, i)
                 for n in range(self.extrapolation_beam_count)
@@ -167,38 +307,35 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
             # -- Start at one, because first postfix character is predicted by the block extrapolator
             tf_initial_t = tf.constant(1, dtype=tf.int32)
 
-            # -- The first prediction and lstm state come out of the block extrapolator,
-            #  not the stepwise! The first prediction will be processed two-fold:
-            #  * It will be arg-maxed/converted to one-hot so that it can be fed
-            #    into the stepwise predictor.
-            #  * It will be k-maxed and written as the first beam tails into tf_stepwise_beam_output[0]
-            #    as the first extrapolated characters.
+            # -- The first prediction and lstm state come out of the block extrapolator
             tf_first_lexical_prediction = tf.nn.softmax(
                 self.tf_lexical_logical_predictions_per_timestep_per_batch[0, -1, :self.num_lexical_features])
             tf_first_logical_class = tf.argmax(
                 self.tf_lexical_logical_predictions_per_timestep_per_batch[0, -1, -self.num_logical_features:])
-            tf_beam_state_stack = tuple(
-                tf.contrib.rnn.LSTMStateTuple(
-                    tf.tile(state_tuple.c, [self.extrapolation_beam_count, 1]),
-                    tf.tile(state_tuple.h, [self.extrapolation_beam_count, 1])
-                ) for state_tuple in self.tf_extrapolator_final_state_tuple_stack)
+            
+            # Create initial beam states by tiling the final states
+            tf_beam_state_stack = []
+            for state_tuple in self.tf_extrapolator_final_state_tuple_stack:
+                h = tf.tile(state_tuple[0], [self.extrapolation_beam_count, 1])
+                c = tf.tile(state_tuple[1], [self.extrapolation_beam_count, 1])
+                tf_beam_state_stack.append((h, c))
+            tf_beam_state_stack = tuple(tf_beam_state_stack)
+            
             tf_beam_probs, tf_beam_tails = tf.nn.top_k(tf_first_lexical_prediction, k=self.extrapolation_beam_count, sorted=False)
             tf_beam_tails = tf.concat([
-                tf.reshape(tf.tile([0], [self.extrapolation_beam_count]), shape=(-1, 1)),  # Predecessor beam index for first step is irrelevant
-                tf.reshape(tf_beam_tails, shape=(-1, 1)),  # top_k indices from first lexical prob. dist.
-                tf.reshape(tf.tile([tf.cast(tf_first_logical_class, tf.int32)], [self.extrapolation_beam_count]), shape=(-1, 1))  # Always adapt best class for all beams
+                tf.reshape(tf.tile([0], [self.extrapolation_beam_count]), shape=(-1, 1)),
+                tf.reshape(tf_beam_tails, shape=(-1, 1)),
+                tf.reshape(tf.tile([tf.cast(tf_first_logical_class, tf.int32)], [self.extrapolation_beam_count]), shape=(-1, 1))
             ], axis=1)
             tf_stepwise_beam_output = tf_stepwise_beam_output.write(0, tf_beam_tails)
-            tf_beam_probs = tf.log(tf_beam_probs)  # Current log-prob for each beam
+            tf_beam_probs = tf.log(tf_beam_probs)
 
-            #  Per-beam per-step log-prob factor for each beam. Will be set to 0 when a beam encounters EOL.
             tf_unfinished_beams = tf.tile([True], [self.extrapolation_beam_count])
 
             def should_continue(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):
                 return tf.logical_and(t < tf_maximum_prediction_length, tf.count_nonzero(unfinished_beams) > 0)
 
-            def iteration(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):  # , debug_output
-                # -- Prepare information that allows for only furthering unfinished beams
+            def iteration(t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams):
                 num_unfinished_beams = tf.cast(tf.count_nonzero(unfinished_beams), tf.int32)
                 num_finished_beams = self.extrapolation_beam_count - num_unfinished_beams
                 _, beam_indices_sorted_by_finished = tf.nn.top_k(
@@ -207,45 +344,47 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                 unfinished_beam_indices = beam_indices_sorted_by_finished[:num_unfinished_beams]
                 unfinished_beam_tails = tf.gather(beam_tails, unfinished_beam_indices)
                 unfinished_beam_probs = tf.gather(beam_probs, unfinished_beam_indices)
-                unfinished_beam_lstm_states = tuple(
-                    tf.contrib.rnn.LSTMStateTuple(
-                        tf.gather(state_tuple.c, unfinished_beam_indices),
-                        tf.gather(state_tuple.h, unfinished_beam_indices)
-                    ) for state_tuple in beam_state_stack)
+                
+                # Update LSTM states for unfinished beams
+                unfinished_beam_lstm_states = []
+                for state_tuple in beam_state_stack:
+                    h = tf.gather(state_tuple[0], unfinished_beam_indices)
+                    c = tf.gather(state_tuple[1], unfinished_beam_indices)
+                    unfinished_beam_lstm_states.append((h, c))
+                unfinished_beam_lstm_states = tuple(unfinished_beam_lstm_states)
 
-                # -- Get beam predictions and new lstm states
+                # Get beam predictions and new lstm states
                 with tf.variable_scope("rnn", reuse=True):
                     lexical_emb = tf.one_hot(unfinished_beam_tails[:, 1], depth=self.num_lexical_features)
                     logical_emb = tf.one_hot(unfinished_beam_tails[:, 2], depth=self.num_logical_features)
                     beam_predictions, beam_state_stack = self.tf_extrapolator_cell(
-                        state=unfinished_beam_lstm_states,
-                        inputs=tf.concat([lexical_emb, logical_emb], axis=1))
+                        inputs=tf.concat([lexical_emb, logical_emb], axis=1),
+                        states=unfinished_beam_lstm_states)
 
-                # -- Extract 2D lexical/logical embs. from pred., Argmax logical predictions
+                # Extract predictions and process them
                 lexical_beam_pred = tf.nn.softmax(beam_predictions[:, :self.num_lexical_features])
                 logical_beam_pred = tf.nn.softmax(beam_predictions[:, -self.num_logical_features:])
                 logical_beam_pred = tf.cast(tf.argmax(logical_beam_pred, axis=1), tf.int32)
 
-                # -- Flatten and k-max lexical beam predictions
                 lexical_beam_pred = tf.log(lexical_beam_pred) + tf.reshape(unfinished_beam_probs, shape=(-1, 1))
                 lexical_beam_pred = tf.reshape(lexical_beam_pred, shape=(-1,))
-                unfinished_beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=num_unfinished_beams, sorted=False)
+                unfinished_beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(
+                    lexical_beam_pred, k=num_unfinished_beams, sorted=False)
 
-                # -- Adapt new probability values for the beams
+                # Update beam probabilities
                 beam_probs = tf.reshape(tf.concat([
                     unfinished_beam_probs,
                     tf.gather(beam_probs, finished_beam_indices)
                 ], axis=0), shape=(self.extrapolation_beam_count,))
 
-                # -- Gather new beam tail index values.
-                #  Note, that these beam ids are local to the unfinished beam indices! They will therefore
-                #  be translated to global beam indices via a <gather-lookup> after the new beam tails are processed.
+                # Process beam predictions
                 top_lexical_beam_pred_ids = tf.gather(tf_beam_lexical_lookup_idx, top_lexical_beam_pred_ids)
                 top_beam_pred_ids = top_lexical_beam_pred_ids[:, 0]
-                # debug_output = debug_output.write(t-1, top_beam_pred_ids)
                 top_logical_beam_pred_ids = tf.gather(logical_beam_pred, top_beam_pred_ids)
+                
+                # Update beam tails
                 beam_tails = tf.reshape(tf.concat([
-                    tf.reshape(tf.concat([  # |--> Aforementioned <gather-lookup>
+                    tf.reshape(tf.concat([
                         tf.gather(unfinished_beam_indices, top_beam_pred_ids),
                         finished_beam_indices], axis=0), shape=(-1, 1)),
                     tf.reshape(tf.concat([
@@ -256,35 +395,31 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                         tf.tile([0], [num_finished_beams])], axis=0), shape=(-1, 1))
                 ], axis=1), shape=(self.extrapolation_beam_count, 3))
 
-                # -- Check and note which beams just finished (beam class switched from original)
+                # Update unfinished beams status
                 unfinished_beams = tf.reshape(tf.concat([
                     tf.equal(top_logical_beam_pred_ids, unfinished_beam_tails[:, 2]),
                     tf.zeros([num_finished_beams], dtype=tf.bool)
                 ], axis=0), shape=(self.extrapolation_beam_count,))
 
-                # -- Gather new LSTM states. Make sure that exactly extrapolation_beam_count states are written
-                #  per state stack component, such that their shape is invariant.
+                # Update LSTM states
                 padded_top_beam_pred_ids = tf.reshape(tf.concat([
                     top_beam_pred_ids,
                     tf.tile([0], [num_finished_beams])
                 ], axis=0), shape=(self.extrapolation_beam_count,))
-                beam_state_stack = tuple(
-                    tf.contrib.rnn.LSTMStateTuple(
-                        tf.gather(state_tuple.c, padded_top_beam_pred_ids),
-                        tf.gather(state_tuple.h, padded_top_beam_pred_ids)
-                    ) for state_tuple in beam_state_stack)
+                
+                # Update all states in the stack
+                new_beam_state_stack = []
+                for state_tuple in beam_state_stack:
+                    h = tf.gather(state_tuple[0], padded_top_beam_pred_ids)
+                    c = tf.gather(state_tuple[1], padded_top_beam_pred_ids)
+                    new_beam_state_stack.append((h, c))
+                beam_state_stack = tuple(new_beam_state_stack)
 
                 stepwise_beam_output = stepwise_beam_output.write(t, beam_tails)
                 t = t + 1
-                return (
-                    t,
-                    beam_state_stack,
-                    beam_tails,
-                    beam_probs,
-                    stepwise_beam_output,
-                    unfinished_beams)  # , debug_output
+                return (t, beam_state_stack, beam_tails, beam_probs, stepwise_beam_output, unfinished_beams)
 
-            _, _, _, tf_beam_probs, tf_stepwise_beam_output, _ = tf.while_loop(  # , tf_stepwise_debug_output
+            _, _, _, tf_beam_probs, tf_stepwise_beam_output, _ = tf.while_loop(
                 should_continue, iteration,
                 back_prop=False,
                 loop_vars=[
@@ -293,13 +428,66 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                     tf_beam_tails,
                     tf_beam_probs,
                     tf_stepwise_beam_output,
-                    tf_unfinished_beams])  # , tf_stepwise_debug_output
+                    tf_unfinished_beams])
 
             tf_stepwise_beam_output = tf_stepwise_beam_output.stack()
-            # tf_stepwise_debug_output = tf_stepwise_debug_output.stack()
 
         return (
             tf_maximum_prediction_length,
             tf_eol_class_idx,
             tf_beam_probs,
-            tf_stepwise_beam_output)  # , tf_stepwise_debug_output
+            tf_stepwise_beam_output)
+
+    def stepwise_beam_extrapolate(self, session, input_features, beam_size, max_steps):
+        # Initialize beam states
+        initial_state = session.run(self.extrapolator_initial_state)
+        beam_states = [(1.0, [], initial_state)]  # (prob, sequence, state)
+        
+        for step in range(max_steps):
+            # Get all current beams
+            all_beam_probs = []
+            all_beam_tails = []
+            all_beam_states = []
+            
+            # For each beam, get predictions for next step
+            for beam_prob, beam_seq, beam_state in beam_states:
+                if len(beam_seq) == 0:
+                    current_input = input_features
+                else:
+                    current_input = beam_seq[-1]
+                
+                # Run one step prediction
+                feed_dict = {
+                    self.input_features: [current_input],
+                    self.extrapolator_initial_state: beam_state
+                }
+                predictions, final_state = session.run(
+                    [self.extrapolator_predictions, self.extrapolator_final_state],
+                    feed_dict=feed_dict
+                )
+                
+                # Get top k predictions
+                top_k_probs, top_k_indices = tf.nn.top_k(
+                    tf.nn.softmax(predictions[0]), k=beam_size
+                )
+                top_k_probs = top_k_probs.numpy()
+                top_k_indices = top_k_indices.numpy()
+                
+                # Add each prediction to beam candidates
+                for prob, idx in zip(top_k_probs, top_k_indices):
+                    all_beam_probs.append(beam_prob * prob)
+                    all_beam_tails.append(beam_seq + [idx])
+                    all_beam_states.append(final_state)
+            
+            # Select top beams
+            beam_indices = np.argsort(all_beam_probs)[-beam_size:]
+            beam_states = [
+                (all_beam_probs[i], all_beam_tails[i], all_beam_states[i])
+                for i in beam_indices
+            ]
+            
+            # Check if all beams have reached max length
+            if all(len(seq) >= max_steps for _, seq, _ in beam_states):
+                break
+        
+        return beam_states

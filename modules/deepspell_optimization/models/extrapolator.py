@@ -53,8 +53,8 @@ class DSLstmExtrapolatorOptimizer(optimizer.DSModelOptimizerMixin, extrapolator.
 
     def _extrapolator_optimizer(self):
         with tf.name_scope("extrapolator_optimizer"):
-            # -- Obtain global training step
-            global_step = tf.contrib.framework.get_global_step()
+            # -- Create global training step
+            global_step = tf.Variable(0, trainable=False, name='global_step')
 
             # -- Time indices are sliced as follows:
             #  For labels: First Input can be ignored
@@ -66,25 +66,22 @@ class DSLstmExtrapolatorOptimizer(optimizer.DSModelOptimizerMixin, extrapolator.
             # -- Calculate the average cross entropy for the logical classes per timestep
             tf_logical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                  labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, -self.num_logical_features:],
-                 logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, -self.num_logical_features:],
-                 dim=2))
+                 logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, -self.num_logical_features:]))
 
             # -- Calculate the average cross entropy for the lexical classes per timestep
             tf_lexical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 labels=self.tf_lexical_logical_embeddings_per_timestep_per_batch[:, 1:, :self.num_lexical_features],
-                logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, :self.num_lexical_features],
-                dim=2))
+                logits=self.tf_lexical_logical_predictions_per_timestep_per_batch[:, :-1, :self.num_lexical_features]))
 
             # -- Create summaries for TensorBoard
             tf_logical_loss_summary = tf.summary.scalar("logical_loss", tf_logical_loss)
             tf_lexical_loss_summary = tf.summary.scalar("lexical_loss", tf_lexical_loss)
 
             # -- Define training op
-            tf_optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
-            tf_train_op = tf.contrib.layers.optimize_loss(
-                loss=tf_logical_loss+tf_lexical_loss,
-                global_step=global_step,
-                learning_rate=None,
-                summaries=[],
-                optimizer=tf_optimizer)
+            tf_optimizer = tf.compat.v1.train.RMSPropOptimizer(self.tf_learning_rate)
+            
+            # -- Create minimize op that updates global step
+            total_loss = tf_logical_loss + tf_lexical_loss
+            tf_train_op = tf_optimizer.minimize(total_loss, global_step=global_step)
+            
         return tf_train_op, tf_logical_loss_summary, tf_lexical_loss_summary

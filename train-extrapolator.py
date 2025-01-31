@@ -10,11 +10,13 @@ from deepspell_optimization.grammar import DSGrammar
 from deepspell_optimization.models.extrapolator import DSLstmExtrapolatorOptimizer
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
-training_corpus = DSCorpus("corpora/deepspell_data_north_america_nozip_v2.tsv", "na", lowercase=True)
+#training_corpus = DSCorpus("corpora/deepspell_data_north_america_nozip_v2.tsv", "na", lowercase=True)
+training_corpus = DSCorpus("corpora/RoadFTS5_EU_small_uncompressed.NDS", "eu", lowercase=True)
 training_grammar = DSGrammar("corpora/grammar-address-na.json", training_corpus.featureset)
 model = DSLstmExtrapolatorOptimizer(
     "models", "logs",
     features=training_corpus.featureset,
+    version=9,
     learning_rate=0.003,
     learning_rate_decay=0.5,
     training_epochs=5,

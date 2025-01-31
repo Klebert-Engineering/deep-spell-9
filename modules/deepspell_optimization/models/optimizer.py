@@ -7,7 +7,8 @@ import os
 import sys
 import time
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
 from deepspell import corpus, grammar
 from deepspell.models import modelbase
@@ -226,3 +227,18 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
                     print("------------------------------------------------------")
 
         print("Optimization Finished!")
+
+    def train(self, training_corpus, training_grammar=None):
+        with self.graph.as_default():
+            # -- Create global step variable
+            global_step = tf.train.get_or_create_global_step()
+            
+            # -- Create learning rate decay
+            self.tf_learning_rate = tf.train.exponential_decay(
+                self.learning_rate,
+                global_step,
+                decay_steps=1000,
+                decay_rate=self.learning_rate_decay,
+                staircase=True)
+
+            # Rest of the training implementation...

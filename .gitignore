@@ -8,3 +8,5 @@ logs
 models/checkpoint
 *.egg-info
 venv/
+.venv/
+.vscode/
