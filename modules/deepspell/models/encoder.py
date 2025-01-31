@@ -171,24 +171,30 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             backward_outputs = tf.reverse(tf_corrupt_encoder_input, axis=[1])
             
             # Forward pass through stacked LSTM
+            forward_states = []
             for cell in tf_encoder_forward_cells:
                 forward_outputs, forward_state_h, forward_state_c = cell(forward_outputs)
+                forward_states.extend([forward_state_h, forward_state_c])
             
             # Backward pass through stacked LSTM
+            backward_states = []
             for cell in tf_encoder_backward_cells:
                 backward_outputs, backward_state_h, backward_state_c = cell(backward_outputs)
+                backward_states.extend([backward_state_h, backward_state_c])
             backward_outputs = tf.reverse(backward_outputs, axis=[1])
             
             # Combine forward and backward outputs
             combined_outputs = tf.concat([forward_outputs, backward_outputs, tf_corrupt_encoder_input], axis=2)
             
             # Final processing through combine layers
+            combine_states = []
             for cell in tf_encoder_combine_cells:
                 combined_outputs, combine_state_h, combine_state_c = cell(combined_outputs)
+                combine_states.extend([combine_state_h, combine_state_c])
             
-            # Collect final states
-            final_states = [combine_state_h, combine_state_c]
-            tf_final_encoder_states_per_batch = tf.concat(final_states, axis=1)
+            # Collect all states and concatenate
+            all_states = forward_states + backward_states + combine_states
+            tf_final_encoder_states_per_batch = tf.concat(all_states, axis=1)
 
         return tf_corrupt_encoder_input, tf_final_encoder_states_per_batch
 
@@ -196,11 +202,11 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         """
         :return: tf_latent_mean, tf_latent_variance, tf_latent_vec
         """
-        with tf.variable_scope('encoder_to_latent'):
+        with tf.compat.v1.variable_scope('encoder_to_latent'):
             kl_rate = tf.placeholder(tf.float32, shape=[])
-            concat_state_size = 2*sum(self.encoder_combine_state_size_per_layer)
-            w = tf.get_variable("w", [concat_state_size, 2 * self.embedding_size], dtype=tf.float32)
-            b = tf.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
+            concat_state_size = tf.shape(self.tf_encoder_final_state_per_batch)[1]
+            w = tf.compat.v1.get_variable("w", [1536, 2 * self.embedding_size], dtype=tf.float32)
+            b = tf.compat.v1.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
             mean_logvar = self._prelu(tf.matmul(self.tf_encoder_final_state_per_batch, w) + b)
             means, logvar = tf.split(mean_logvar, num_or_size_splits=2, axis=1)
             noise = tf.random_normal(tf.shape(means)) * kl_rate
@@ -208,8 +214,99 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             kl_loss = tf.reshape(
                 tf.reduce_mean(-0.5 * (logvar - tf.square(means) - tf.exp(logvar) + 1.0),),
                 shape=[])
-            # if kl_min:
-            #     kl_loss = tf.reduce_sum(tf.maximum(kl_ave, kl_min))
             kl_loss *= kl_rate
             kl_loss_summary = tf.summary.scalar("kl_loss", kl_loss)
         return sampled_random_vectors, means, kl_loss, kl_loss_summary, kl_rate
+
+    def _latent_to_stepwise_decoder(self):
+        """
+        :return: tf_eol_char_id, tf_unk_char_id, tf_start_char_id, tf_correct_decoder_output, tf_stepwise_decoder_output
+        """
+        with tf.compat.v1.variable_scope('stepwise_decoder'):
+            tf_eol_char_id = tf.placeholder(tf.int32, shape=[])
+            tf_unk_char_id = tf.placeholder(tf.int32, shape=[])
+            tf_start_char_id = tf.placeholder(tf.int32, shape=[])
+            tf_correct_decoder_output = tf.placeholder(
+                dtype=tf.float32,
+                shape=(None, None, self.featureset.num_lexical_features()))
+            tf_batch_size = tf.shape(tf_correct_decoder_output)[0]
+
+            # Create decoder LSTM layers
+            tf_decoder_cells = [
+                tf.keras.layers.LSTM(hidden_state_size, return_sequences=True, return_state=True)
+                for hidden_state_size in self.decoder_state_size_per_layer
+            ]
+            
+            # Create output projection layer
+            tf_output_projection = tf.keras.layers.Dense(self.featureset.num_lexical_features())
+
+            if self.latent_space_as_decoder_state:
+                with tf.compat.v1.variable_scope('latent_to_decoder'):
+                    concat_state_size = sum(n*2 for n in self.decoder_state_size_per_layer)
+                    tf_w = tf.compat.v1.get_variable("w", [self.embedding_size, concat_state_size], dtype=tf.float32)
+                    tf_b = tf.compat.v1.get_variable("b", [concat_state_size], dtype=tf.float32)
+                    tf_decoder_initial_state = self._prelu(tf.matmul(self.tf_latent_random_vectors, tf_w) + tf_b)
+                    
+                    # Split initial state for each layer
+                    pos_in_state = 0
+                    initial_states = []
+                    for state_size in self.decoder_state_size_per_layer:
+                        h = tf_decoder_initial_state[:, pos_in_state:pos_in_state+state_size]
+                        c = tf_decoder_initial_state[:, pos_in_state+state_size:pos_in_state+2*state_size]
+                        initial_states.append([h, c])
+                        pos_in_state += state_size*2  # *2 for state+mem
+            else:
+                initial_states = None
+
+            tf_max_decoder_steps = tf.shape(tf_correct_decoder_output)[1]
+            tf_stepwise_decoder_output = tf.TensorArray(tf.float32, size=1, dynamic_size=True)
+            tf_prev_output = tf.reshape(tf.tile(
+                tf.one_hot(tf_start_char_id, depth=self.featureset.num_lexical_features()),
+                [tf_batch_size]), shape=(-1, self.featureset.num_lexical_features()))
+
+            def should_continue(t, *_):
+                return t < tf_max_decoder_steps
+
+            def iteration(t, prev_output, states, stepwise_decoder_output):
+                input_keep_prob = tf.random_uniform([], .0, 1.)
+                prev_output = tf.cond(
+                    tf.logical_and(input_keep_prob > self.decoder_input_keep_prob, t > 0),
+                    lambda: tf.reshape(tf.tile(
+                        tf.one_hot(tf_unk_char_id, depth=self.featureset.num_lexical_features()),
+                        [tf_batch_size]), shape=(-1, self.featureset.num_lexical_features())),
+                    lambda: prev_output)
+                
+                # Concatenate with latent vector
+                decoder_input = tf.concat([prev_output, self.tf_latent_random_vectors], axis=1)
+                
+                # Process through LSTM layers
+                current_input = decoder_input
+                new_states = []
+                for i, (cell, state) in enumerate(zip(tf_decoder_cells, states)):
+                    current_input = tf.expand_dims(current_input, axis=1)  # Add time dimension
+                    outputs, state_h, state_c = cell(current_input, initial_state=state)
+                    current_input = tf.squeeze(outputs, axis=1)  # Remove time dimension
+                    new_states.append([state_h, state_c])
+                
+                # Project output
+                current_output = tf_output_projection(current_input)
+                
+                # Write to output array
+                stepwise_decoder_output = stepwise_decoder_output.write(t, current_output)
+                
+                # Use teacher forcing
+                prev_output = tf_correct_decoder_output[:, t, :]
+                
+                return t+1, prev_output, new_states, stepwise_decoder_output
+
+            # Initialize states if not provided
+            if initial_states is None:
+                initial_states = [[None, None] for _ in tf_decoder_cells]
+
+            _, _, _, tf_stepwise_decoder_output = tf.while_loop(
+                should_continue,
+                iteration,
+                [tf.constant(0), tf_prev_output, initial_states, tf_stepwise_decoder_output])
+
+        tf_stepwise_decoder_output = tf.transpose(tf_stepwise_decoder_output.stack(), perm=(1, 0, 2))
+        return tf_eol_char_id, tf_unk_char_id, tf_start_char_id, tf_correct_decoder_output, tf_stepwise_decoder_output

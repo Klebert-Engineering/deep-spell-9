@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
 from deepspell.corpus import DSCorpus
-from deepspell_optimization.grammar import DSGrammar
+from deepspell.grammar import DSGrammar
 from deepspell_optimization.models.extrapolator import DSLstmExtrapolatorOptimizer
 
 # training_corpus = DSCorpus("corpora/deepspell_minimal.tsv", "na")
