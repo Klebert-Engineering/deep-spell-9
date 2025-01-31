@@ -146,6 +146,8 @@ class TokenClassBenchmark:
             return .0
         prec = self.discrimination_precision()
         rec = self.discrimination_recall()
+        if prec + rec == 0:  # Handle case where both precision and recall are 0
+            return .0
         return (2.0*prec*rec)/(prec+rec)
 
 

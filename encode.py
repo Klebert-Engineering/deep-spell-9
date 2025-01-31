@@ -3,6 +3,9 @@
 import argparse
 import os
 import sys
+import pickle
+import numpy as np
+from scipy.spatial import cKDTree
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__))+"/modules")
 
@@ -38,5 +41,30 @@ print("  ... corpus:   "+args.corpus)
 print("=======================================================================")
 print("")
 
+# Load the corpus using DSCorpus
+corpus = DSCorpus(args.corpus, "eu", lowercase=True)
 encoder_model = DSVariationalLstmAutoEncoder(args.encoder, "logs")
-encoder_model.encode_corpus(args.corpus, args.output_path, batch_size=args.batch_size)
+
+# Process all tokens from the corpus
+all_tokens = []
+for class_tokens in corpus.data.values():
+    all_tokens.extend(token.string for token in class_tokens)
+
+# Encode tokens and build KD-tree
+print(f"Encoding {len(all_tokens)} tokens...")
+token_embeddings = np.array([encoder_model.encode(token) for token in all_tokens])
+print("Building KD-tree...")
+kdtree = cKDTree(token_embeddings)
+
+# Save the tokens and kdtree
+output_base = os.path.join(args.output_path, os.path.splitext(os.path.basename(args.corpus))[0])
+print(f"Saving output files to {output_base}.tokens and {output_base}.kdtree ...")
+
+with open(output_base + ".tokens", "w") as f:
+    for token in all_tokens:
+        f.write(token + "\n")
+
+with open(output_base + ".kdtree", "wb") as f:
+    pickle.dump(kdtree, f)
+
+print("  ... done.")

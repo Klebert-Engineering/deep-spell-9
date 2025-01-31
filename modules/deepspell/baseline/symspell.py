@@ -1,7 +1,7 @@
 # (C) 2018-present Klebert Engineering
 
 import codecs
-from dawg import BytesDAWG
+from dawg_python import BytesDAWG
 
 
 class DSSymSpellBaseline:

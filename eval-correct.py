@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/modules")
 from deepspell.corpus import DSCorpus
 from deepspell.grammar import DSGrammar
 from deepspell.baseline.symspell import DSSymSpellBaseline
-from deepspell.models.encoder import DSVariationalLstmAutoEncoder
+from deepspell_optimization.models.encoder import DSVariationalLstmAutoEncoderOptimizer as DSVariationalLstmAutoEncoder
 
 arg_parser = argparse.ArgumentParser("NDS AutoCompletion Quality Evaluator")
 arg_parser.add_argument(
