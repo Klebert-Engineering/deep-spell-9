@@ -8,6 +8,7 @@ import sys
 import time
 
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 # ============================[ Local Imports ]==========================
 
@@ -63,13 +64,13 @@ class DSModelBase:
         # -- Create basic Tensor Flow nodes
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.session = tf.Session()
-            self.tf_lexical_logical_embeddings_per_timestep_per_batch = tf.placeholder(
+            self.session = tf.compat.v1.Session()
+            self.tf_lexical_logical_embeddings_per_timestep_per_batch = tf.compat.v1.placeholder(
                 tf.float32,
                 [None, None, self.num_logical_features + self.num_lexical_features])
             self.tf_lexical_logical_embeddings_per_timestep_per_batch_shape = tf.shape(
                 self.tf_lexical_logical_embeddings_per_timestep_per_batch)
-            self.tf_timesteps_per_batch = tf.placeholder(tf.int32, [None])
+            self.tf_timesteps_per_batch = tf.compat.v1.placeholder(tf.int32, [None])
             self.tf_saver = None
 
     def name(self):
@@ -80,8 +81,8 @@ class DSModelBase:
     def _finish_init_base(self):
         # Create saver only after the graph is initialized
         with self.graph.as_default():
-            self.tf_saver = tf.train.Saver()
-            self.tf_init_op = tf.global_variables_initializer()
+            self.tf_saver = tf.compat.v1.train.Saver()
+            self.tf_init_op = tf.compat.v1.global_variables_initializer()
             self.session.run(self.tf_init_op)
             print("Compute Graph Initialized.")
             print(" Trainable Variables:", tf.trainable_variables())

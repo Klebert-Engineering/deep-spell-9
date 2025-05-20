@@ -4,6 +4,7 @@
 
 import numpy as np
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 # ============================[ Local Imports ]==========================
 
@@ -130,9 +131,9 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
         with tf.name_scope("extrapolator"):
 
             # -- LSTM cell for prediction
-            tf_extrapolator_cell = tf.contrib.rnn.OutputProjectionWrapper(
-                tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_extrapolator_cell = tf.compat.v1.nn.rnn_cell.OutputProjectionWrapper(
+                tf.compat.v1.nn.rnn_cell.MultiRNNCell([
+                    tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                     self.state_size_per_layer
                 ]),
                 self.num_logical_features + self.num_lexical_features
@@ -155,8 +156,8 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
 
     def _stepwise_beam_extrapolator(self):
         with tf.name_scope("stepwise_beam_extrapolator"):
-            tf_maximum_prediction_length = tf.placeholder(tf.int32)
-            tf_eol_class_idx = tf.placeholder(tf.int32)
+            tf_maximum_prediction_length = tf.compat.v1.placeholder(tf.int32)
+            tf_eol_class_idx = tf.compat.v1.placeholder(tf.int32)
             tf_stepwise_beam_output = tf.TensorArray(dtype=tf.int32, size=1, dynamic_size=True)
             # tf_stepwise_debug_output = tf.TensorArray(dtype=tf.int32, size=tf_maximum_prediction_length-1)
             tf_beam_lexical_lookup_idx = tf.constant([
@@ -178,7 +179,7 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
             tf_first_logical_class = tf.argmax(
                 self.tf_lexical_logical_predictions_per_timestep_per_batch[0, -1, -self.num_logical_features:])
             tf_beam_state_stack = tuple(
-                tf.contrib.rnn.LSTMStateTuple(
+                tf.compat.v1.nn.rnn_cell.LSTMStateTuple(
                     tf.tile(state_tuple.c, [self.extrapolation_beam_count, 1]),
                     tf.tile(state_tuple.h, [self.extrapolation_beam_count, 1])
                 ) for state_tuple in self.tf_extrapolator_final_state_tuple_stack)
@@ -189,7 +190,7 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                 tf.reshape(tf.tile([tf.cast(tf_first_logical_class, tf.int32)], [self.extrapolation_beam_count]), shape=(-1, 1))  # Always adapt best class for all beams
             ], axis=1)
             tf_stepwise_beam_output = tf_stepwise_beam_output.write(0, tf_beam_tails)
-            tf_beam_probs = tf.log(tf_beam_probs)  # Current log-prob for each beam
+            tf_beam_probs = tf.math.log(tf_beam_probs)  # Current log-prob for each beam
 
             #  Per-beam per-step log-prob factor for each beam. Will be set to 0 when a beam encounters EOL.
             tf_unfinished_beams = tf.tile([True], [self.extrapolation_beam_count])
@@ -208,7 +209,7 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                 unfinished_beam_tails = tf.gather(beam_tails, unfinished_beam_indices)
                 unfinished_beam_probs = tf.gather(beam_probs, unfinished_beam_indices)
                 unfinished_beam_lstm_states = tuple(
-                    tf.contrib.rnn.LSTMStateTuple(
+                    tf.compat.v1.nn.rnn_cell.LSTMStateTuple(
                         tf.gather(state_tuple.c, unfinished_beam_indices),
                         tf.gather(state_tuple.h, unfinished_beam_indices)
                     ) for state_tuple in beam_state_stack)
@@ -227,7 +228,7 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                 logical_beam_pred = tf.cast(tf.argmax(logical_beam_pred, axis=1), tf.int32)
 
                 # -- Flatten and k-max lexical beam predictions
-                lexical_beam_pred = tf.log(lexical_beam_pred) + tf.reshape(unfinished_beam_probs, shape=(-1, 1))
+                lexical_beam_pred = tf.math.log(lexical_beam_pred) + tf.reshape(unfinished_beam_probs, shape=(-1, 1))
                 lexical_beam_pred = tf.reshape(lexical_beam_pred, shape=(-1,))
                 unfinished_beam_probs, top_lexical_beam_pred_ids = tf.nn.top_k(lexical_beam_pred, k=num_unfinished_beams, sorted=False)
 
@@ -269,7 +270,7 @@ class DSLstmExtrapolator(modelbase.DSModelBase):
                     tf.tile([0], [num_finished_beams])
                 ], axis=0), shape=(self.extrapolation_beam_count,))
                 beam_state_stack = tuple(
-                    tf.contrib.rnn.LSTMStateTuple(
+                    tf.compat.v1.nn.rnn_cell.LSTMStateTuple(
                         tf.gather(state_tuple.c, padded_top_beam_pred_ids),
                         tf.gather(state_tuple.h, padded_top_beam_pred_ids)
                     ) for state_tuple in beam_state_stack)

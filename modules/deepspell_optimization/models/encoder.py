@@ -4,6 +4,7 @@
 
 import numpy as np
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 # ============================[ Local Imports ]==========================
 
@@ -132,16 +133,16 @@ class DSVariationalLstmAutoEncoderOptimizer(optimizer.DSModelOptimizerMixin, enc
         :return: tf_eol_char_id, tf_unk_char_id, tf_start_char_id, tf_correct_decoder_output, tf_stepwise_decoder_output
         """
         with tf.variable_scope('stepwise_decoder'):
-            tf_eol_char_id = tf.placeholder(tf.int32, shape=[])
-            tf_unk_char_id = tf.placeholder(tf.int32, shape=[])
-            tf_start_char_id = tf.placeholder(tf.int32, shape=[])
-            tf_correct_decoder_output = tf.placeholder(
+            tf_eol_char_id = tf.compat.v1.placeholder(tf.int32, shape=[])
+            tf_unk_char_id = tf.compat.v1.placeholder(tf.int32, shape=[])
+            tf_start_char_id = tf.compat.v1.placeholder(tf.int32, shape=[])
+            tf_correct_decoder_output = tf.compat.v1.placeholder(
                 dtype=tf.float32,
                 shape=(None, None, self.featureset.num_lexical_features()))
             tf_batch_size = tf.shape(tf_correct_decoder_output)[0]
-            tf_decoder_cell = tf.contrib.rnn.OutputProjectionWrapper(
-                tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_decoder_cell = tf.compat.v1.nn.rnn_cell.OutputProjectionWrapper(
+                tf.compat.v1.nn.rnn_cell.MultiRNNCell([
+                    tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                     self.decoder_state_size_per_layer]),
                 self.featureset.num_lexical_features())
 
@@ -153,7 +154,7 @@ class DSVariationalLstmAutoEncoderOptimizer(optimizer.DSModelOptimizerMixin, enc
                     tf_decoder_initial_state = self._prelu(tf.matmul(self.tf_latent_random_vectors, tf_w) + tf_b)
                     tf_decoder_initial_state_tuple_list, pos_in_state = [], 0
                     for state_size in self.decoder_state_size_per_layer:
-                        tf_decoder_initial_state_tuple_list += [tf.contrib.rnn.LSTMStateTuple(
+                        tf_decoder_initial_state_tuple_list += [tf.compat.v1.nn.rnn_cell.LSTMStateTuple(
                             tf_decoder_initial_state[:, pos_in_state:pos_in_state+state_size],
                             tf_decoder_initial_state[:, pos_in_state+state_size:pos_in_state+2*state_size])]
                         pos_in_state += state_size*2  # *2 for state+mem
@@ -171,7 +172,7 @@ class DSVariationalLstmAutoEncoderOptimizer(optimizer.DSModelOptimizerMixin, enc
                 return t < tf_max_decoder_steps
 
             def iteration(t, prev_output, state, stepwise_decoder_output):
-                input_keep_prob = tf.random_uniform([], .0, 1.)
+                input_keep_prob = tf.random.uniform([], .0, 1.)
                 prev_output = tf.cond(
                     tf.logical_and(input_keep_prob > self.decoder_input_keep_prob, t > 0),
                     lambda: tf.reshape(tf.tile(
@@ -198,24 +199,19 @@ class DSVariationalLstmAutoEncoderOptimizer(optimizer.DSModelOptimizerMixin, enc
         """
         with tf.name_scope("decoder_optimizer"):
             # -- Obtain global training step
-            global_step = tf.contrib.framework.get_global_step()
+            global_step = tf.compat.v1.train.get_or_create_global_step()
 
             # -- Calculate the average cross entropy for the lexical classes per timestep
             tf_lexical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 labels=self.tf_correct_decoder_output,
                 logits=self.tf_stepwise_decoder_output,
-                dim=2))
+                axis=2))
 
             # -- Create summaries for TensorBoard
-            tf_lexical_loss_summary = tf.summary.scalar("lexical_loss", tf_lexical_loss)
+            tf_lexical_loss_summary = tf.compat.v1.summary.scalar("lexical_loss", tf_lexical_loss)
 
             # -- Define training op
-            tf_optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
-            tf_train_op = tf.contrib.layers.optimize_loss(
-                loss=tf_lexical_loss + self.tf_kl_loss,
-                global_step=global_step,
-                learning_rate=None,
-                summaries=[],
-                optimizer=tf_optimizer)
+            tf_optimizer = tf.compat.v1.train.RMSPropOptimizer(self.tf_learning_rate)
+            tf_train_op = tf_optimizer.minimize(tf_lexical_loss + self.tf_kl_loss, global_step=global_step)
 
         return tf_train_op, tf_lexical_loss_summary
