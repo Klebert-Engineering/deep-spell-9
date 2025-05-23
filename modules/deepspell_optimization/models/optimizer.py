@@ -8,6 +8,7 @@ import sys
 import time
 
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 from deepspell import corpus, grammar
 from deepspell.models import modelbase
@@ -71,7 +72,7 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
         self.training_history = args.pop("training_history", [])
         self.tf_summary_writer = None
         with self.graph.as_default():
-            self.tf_learning_rate = tf.placeholder(tf.float32)
+            self.tf_learning_rate = tf.compat.v1.placeholder(tf.float32)
 
     def store(self, file=None):
         """
@@ -157,7 +158,7 @@ class DSModelOptimizerMixin(modelbase.DSModelBase):
             print("------------------------------------------------------")
             current_learning_rate = self.learning_rate
             if os.path.isdir(self.log_dir):
-                self.tf_summary_writer = tf.summary.FileWriter(os.path.join(self.log_dir, self.name()))
+                self.tf_summary_writer = tf.compat.v1.summary.FileWriter(os.path.join(self.log_dir, self.name()))
                 self.tf_summary_writer.add_graph(self.graph)
             else:
                 print("No valid log dir issued. Log will not be written!")

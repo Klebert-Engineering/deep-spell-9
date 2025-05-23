@@ -4,10 +4,12 @@
 
 import numpy as np
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 import math
 from collections import defaultdict
 
 # ============================[ Local Imports ]==========================
+from deepspell.rnn_compat import MultiRNNCell
 
 from deepspell import featureset
 from deepspell.models import modelbase
@@ -108,8 +110,8 @@ class DSLstmDiscriminator(modelbase.DSModelBase):
                                                            :, :, :self.num_lexical_features]
 
             # -- Backward pass
-            tf_discriminator_backward_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_discriminator_backward_cell = MultiRNNCell([
+                tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                 self.bw_state_size_per_layer])
             tf_backward_embeddings_per_timestep_per_batch, _ = tf.nn.dynamic_rnn(
                 cell=tf_discriminator_backward_cell,
@@ -120,9 +122,9 @@ class DSLstmDiscriminator(modelbase.DSModelBase):
                 time_major=False)
 
             # -- Forward pass
-            tf_discriminator_forward_cell = tf.contrib.rnn.OutputProjectionWrapper(
-                tf.contrib.rnn.MultiRNNCell([
-                    tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_discriminator_forward_cell = tf.compat.v1.nn.rnn_cell.OutputProjectionWrapper(
+                MultiRNNCell([
+                    tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                     self.fw_state_size_per_layer
                 ]),
                 self.num_logical_features)

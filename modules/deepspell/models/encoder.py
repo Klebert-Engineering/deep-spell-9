@@ -15,10 +15,12 @@ except ImportError:
     pass
 
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 import numpy as np
 
 # ============================[ Local Imports ]==========================
 
+from deepspell.rnn_compat import MultiRNNCell
 from deepspell.models import modelbase
 from deepspell import grammar
 
@@ -143,18 +145,18 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         with tf.name_scope("encoder"):
 
             # -- Slice lexical features from lexical-logical input
-            tf_corrupt_encoder_input = tf.placeholder(
+            tf_corrupt_encoder_input = tf.compat.v1.placeholder(
                 tf.float32,
                 [None, None, self.num_lexical_features])
 
-            tf_encoder_backward_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_encoder_backward_cell = MultiRNNCell([
+                tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                 self.encoder_bw_state_size_per_layer])
-            tf_encoder_forward_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_encoder_forward_cell = MultiRNNCell([
+                tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                 self.encoder_fw_state_size_per_layer])
-            tf_encoder_combine_cell = tf.contrib.rnn.MultiRNNCell([
-                tf.contrib.rnn.BasicLSTMCell(hidden_state_size) for hidden_state_size in
+            tf_encoder_combine_cell = MultiRNNCell([
+                tf.compat.v1.nn.rnn_cell.BasicLSTMCell(hidden_state_size) for hidden_state_size in
                 self.encoder_combine_state_size_per_layer])
 
             # -- Create a dynamically unrolled RNN to produce the character category discrimination
@@ -184,13 +186,13 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
         :return: tf_latent_mean, tf_latent_variance, tf_latent_vec
         """
         with tf.variable_scope('encoder_to_latent'):
-            kl_rate = tf.placeholder(tf.float32, shape=[])
+            kl_rate = tf.compat.v1.placeholder(tf.float32, shape=[])
             concat_state_size = 2*sum(self.encoder_combine_state_size_per_layer)
             w = tf.get_variable("w", [concat_state_size, 2 * self.embedding_size], dtype=tf.float32)
             b = tf.get_variable("b", [2 * self.embedding_size], dtype=tf.float32)
             mean_logvar = self._prelu(tf.matmul(self.tf_encoder_final_state_per_batch, w) + b)
             means, logvar = tf.split(mean_logvar, num_or_size_splits=2, axis=1)
-            noise = tf.random_normal(tf.shape(means)) * kl_rate
+            noise = tf.random.normal(tf.shape(means)) * kl_rate
             sampled_random_vectors = means + tf.exp(0.5 * logvar) * noise
             kl_loss = tf.reshape(
                 tf.reduce_mean(-0.5 * (logvar - tf.square(means) - tf.exp(logvar) + 1.0),),
@@ -198,5 +200,5 @@ class DSVariationalLstmAutoEncoder(modelbase.DSModelBase):
             # if kl_min:
             #     kl_loss = tf.reduce_sum(tf.maximum(kl_ave, kl_min))
             kl_loss *= kl_rate
-            kl_loss_summary = tf.summary.scalar("kl_loss", kl_loss)
+            kl_loss_summary = tf.compat.v1.summary.scalar("kl_loss", kl_loss)
         return sampled_random_vectors, means, kl_loss, kl_loss_summary, kl_rate

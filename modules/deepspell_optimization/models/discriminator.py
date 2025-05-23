@@ -3,6 +3,7 @@
 # ===============================[ Imports ]=============================
 
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 # ============================[ Local Imports ]==========================
 
@@ -65,23 +66,18 @@ class DSLstmDiscriminatorOptimizer(optimizer.DSModelOptimizerMixin, discriminato
                                                            :, :, -self.num_logical_features:]
 
             # -- Obtain global training step
-            global_step = tf.contrib.framework.get_global_step()
+            global_step = tf.compat.v1.train.get_or_create_global_step()
 
             # -- Calculate the average cross entropy for the logical classes per timestep
             tf_logical_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 labels=tf_logical_embeddings_per_timestep_per_batch,
                 logits=self.tf_logical_predictions_per_timestep_per_batch,
-                dim=2))
+                axis=2))
 
             # -- Create summaries for TensorBoard
-            tf_logical_loss_summary = tf.summary.scalar("logical_loss", tf_logical_loss)
+            tf_logical_loss_summary = tf.compat.v1.summary.scalar("logical_loss", tf_logical_loss)
 
             # -- Define training op
-            tf_optimizer = tf.train.RMSPropOptimizer(self.tf_learning_rate)
-            tf_train_op = tf.contrib.layers.optimize_loss(
-                loss=tf_logical_loss,
-                global_step=global_step,
-                learning_rate=None,
-                summaries=[],
-                optimizer=tf_optimizer)
+            tf_optimizer = tf.compat.v1.train.RMSPropOptimizer(self.tf_learning_rate)
+            tf_train_op = tf_optimizer.minimize(tf_logical_loss, global_step=global_step)
         return tf_train_op, tf_logical_loss_summary

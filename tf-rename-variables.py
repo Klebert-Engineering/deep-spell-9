@@ -1,6 +1,7 @@
 import sys, getopt
 
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 
 usage_str = 'python tensorflow_rename_variables.py --checkpoint_dir=path/to/dir/ ' \
             '--replace_from=substr --replace_to=substr --add_prefix=abc --dry_run'
@@ -8,10 +9,10 @@ usage_str = 'python tensorflow_rename_variables.py --checkpoint_dir=path/to/dir/
 
 def rename(checkpoint_dir, replace_from, replace_to, add_prefix, dry_run):
     checkpoint = tf.train.get_checkpoint_state(checkpoint_dir)
-    with tf.Session() as sess:
-        for var_name, _ in tf.contrib.framework.list_variables(checkpoint_dir):
+    with tf.compat.v1.Session() as sess:
+        for var_name, _ in tf.train.list_variables(checkpoint_dir):
             # Load the variable
-            var = tf.contrib.framework.load_variable(checkpoint_dir, var_name)
+            var = tf.train.load_variable(checkpoint_dir, var_name)
 
             # Set the new name
             new_name = var_name
@@ -32,8 +33,8 @@ def rename(checkpoint_dir, replace_from, replace_to, add_prefix, dry_run):
 
         if not dry_run:
             # Save the variables
-            saver = tf.train.Saver()
-            sess.run(tf.global_variables_initializer())
+            saver = tf.compat.v1.train.Saver()
+            sess.run(tf.compat.v1.global_variables_initializer())
             saver.save(sess, checkpoint_dir)
 
 
