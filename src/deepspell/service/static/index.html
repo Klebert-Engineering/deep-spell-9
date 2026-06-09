@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Spell: Neural Geographic Auto-Completion</title>
+<style>
+  :root { font-family: system-ui, sans-serif; }
+  body { margin: 0; background: #d8dadd; }
+  header { background: #fff; padding: 12px 24px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+  header h1 { font-size: 18px; margin: 0; }
+  main { display: grid; gap: 16px; padding: 16px; grid-template-columns: 2fr 1fr; max-width: 1100px; margin: auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .card { background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25); padding: 12px 16px; overflow: auto; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #555; margin: 0 0 8px; }
+  #query { width: 100%; font-size: 18px; padding: 6px 4px; border: none; border-bottom: 2px solid #888; outline: none; box-sizing: border-box; }
+  #prediction { color: #888; font-size: 14px; }
+  #prediction b { color: #111; }
+  .hint { float: right; font-size: 12px; color: #999; }
+  table { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 14px; }
+  td { padding: 1px 3px; text-align: center; }
+  .left td { text-align: left; }
+  .CITY { color: #c0392b; } .STATE { color: #2980b9; } .ROAD { color: #27ae60; }
+  .COUNTRY { color: #8e44ad; } .ZIP { color: #b7950b; } .EOL { color: #7f8c8d; }
+</style>
+</head>
+<body>
+<header><h1>Deep Spell: Neural Geographic Auto-Completion <span id="model-name" style="font-size:11px;color:#999"></span></h1></header>
+<main>
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Query</h2>
+      <input id="query" autocomplete="off" spellcheck="false" placeholder="los angeles cal...">
+      <div><span id="prediction">No input</span><span class="hint">Press Tab to complete</span></div>
+    </div>
+    <div class="card"><h2>Predicted categories</h2><div id="categories"></div></div>
+    <div class="card" id="lookup-card" hidden><h2>Database lookup</h2><div id="lookup"></div></div>
+  </section>
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <div class="card"><h2>Completions</h2><div id="completions"></div></div>
+    <div class="card" id="correction-card" hidden><h2>Corrections</h2><div id="corrections"></div></div>
+  </section>
+</main>
+<script>
+const queryInput = document.getElementById("query");
+let bestSuggestion = "";
+let lookupBusy = false, lookupAgain = null;
+
+fetch("/healthz").then(r => r.json()).then(h => {
+  document.getElementById("correction-card").hidden = !h.with_corrector;
+  document.getElementById("lookup-card").hidden = !h.with_lookup;
+});
+
+function cell(text, className, opacity) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  if (opacity !== undefined) td.style.opacity = opacity;
+  return td;
+}
+
+function renderCategories(query, classes) {
+  const container = document.getElementById("categories");
+  container.replaceChildren();
+  if (!classes.length) return;
+  const table = document.createElement("table");
+  const headerRow = table.insertRow();
+  for (const ch of query) headerRow.append(cell(ch));
+  const rows = Math.min(classes[0].length, 5);
+  for (let r = 0; r < rows; ++r) {
+    const row = table.insertRow();
+    for (const charProbs of classes) {
+      const top = charProbs[0].p;
+      const entry = charProbs[r];
+      row.append(cell(entry.name.slice(0, 2), entry.name, (entry.p / top) * 0.9 + 0.1));
+    }
+  }
+  container.append(table);
+}
+
+function renderCompletions(query, completions) {
+  const container = document.getElementById("completions");
+  container.replaceChildren();
+  const table = document.createElement("table");
+  table.className = "left";
+  for (const completion of completions) {
+    const row = table.insertRow();
+    row.append(cell(query + completion.text, completion.class_name));
+    row.append(cell(completion.logprob.toFixed(2), "EOL"));
+  }
+  container.append(table);
+}
+
+function renderCorrections(corrections) {
+  const container = document.getElementById("corrections");
+  container.replaceChildren();
+  const table = document.createElement("table");
+  table.className = "left";
+  for (const [className, correction] of Object.entries(corrections)) {
+    correction.suggestions.forEach((suggestion, i) => {
+      const row = table.insertRow();
+      row.append(cell(i === 0 ? correction.input : "", className));
+      row.append(cell(i === 0 ? "↦" : ""));
+      row.append(cell(suggestion.text, className));
+    });
+  }
+  container.append(table);
+}
+
+function renderLookup(rows) {
+  const container = document.getElementById("lookup");
+  container.replaceChildren();
+  if (!rows.length) return;
+  const table = document.createElement("table");
+  table.className = "left";
+  const header = table.insertRow();
+  for (const key of Object.keys(rows[0])) header.append(cell(key.toUpperCase(), key.toUpperCase()));
+  for (const rowData of rows) {
+    const row = table.insertRow();
+    for (const [key, value] of Object.entries(rowData)) row.append(cell(String(value), key.toUpperCase()));
+  }
+  container.append(table);
+}
+
+function runLookup(tokens) {
+  if (document.getElementById("lookup-card").hidden) return;
+  if (lookupBusy) { lookupAgain = tokens; return; }
+  lookupBusy = true;
+  const params = new URLSearchParams({ n: "5", ...tokens });
+  fetch("/api/lookup?" + params).then(r => r.ok ? r.json() : []).then(rows => {
+    renderLookup(rows);
+    lookupBusy = false;
+    if (lookupAgain) { const next = lookupAgain; lookupAgain = null; runLookup(next); }
+  }).catch(() => { lookupBusy = false; });
+}
+
+queryInput.addEventListener("keydown", event => {
+  if (event.key === "Tab") {
+    event.preventDefault();
+    queryInput.value += bestSuggestion;
+    queryInput.dispatchEvent(new Event("input"));
+  }
+});
+
+queryInput.addEventListener("input", () => {
+  const value = queryInput.value;
+  if (!value.trim()) {
+    document.getElementById("prediction").textContent = "No input";
+    for (const id of ["categories", "completions", "corrections", "lookup"])
+      document.getElementById(id).replaceChildren();
+    return;
+  }
+  fetch("/api/complete?q=" + encodeURIComponent(value)).then(r => r.json()).then(result => {
+    const top = result.completions[0];
+    bestSuggestion = "";
+    if (top) {
+      for (const ch of top.text) {
+        if (ch === " " && bestSuggestion.length) break;
+        bestSuggestion += ch;
+      }
+    }
+    const prediction = document.getElementById("prediction");
+    prediction.replaceChildren(result.query, Object.assign(document.createElement("b"), { textContent: bestSuggestion }));
+    renderCategories(result.query, result.classes);
+    renderCompletions(result.query, result.completions);
+    renderCorrections(result.corrections);
+    const tokens = {};
+    for (const [className, correction] of Object.entries(result.corrections))
+      if (correction.suggestions.length) tokens[className] = correction.suggestions[0].text;
+    for (const [className, token] of Object.entries(result.tokens))
+      if (!(className in tokens)) tokens[className] = token;
+    runLookup(tokens);
+  });
+});
+</script>
+</body>
+</html>
