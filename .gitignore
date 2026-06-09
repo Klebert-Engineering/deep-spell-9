@@ -4,6 +4,7 @@ corpora/*.nds
 corpora/*.NDS
 corpora/*.sqlite
 corpora/*.sqlite-journal
+corpora/na-v2-*
 corpora/geonames/
 !corpora/deepspell_minimal.tsv
 .idea

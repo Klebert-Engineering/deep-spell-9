@@ -1,0 +1,23 @@
+{
+  "tagger": "models-v2/tagger-na.json",
+  "completer": "models-v2/completer-na.json",
+
+  "corrector": "embedding",
+  "encoder": "models-v2/encoder-na.json",
+  "embedding_space": "corpora/na-v2-space",
+
+  "lookup": "corpora/RoadFTS5_USA_unzipped.nds",
+  "lookup_kind": "nds",
+  "nds": {
+    "fts_table_name": "nameFtsTable",
+    "docid_column_name": "namedObjectId",
+    "morton_column_name": "mortonCode",
+    "column_names": {
+      "ROAD": "criterionA",
+      "CITY": "criterionB",
+      "STATE": "criterionC",
+      "COUNTRY": "criterionD"
+    },
+    "class_specificity": ["COUNTRY", "STATE", "CITY", "ROAD"]
+  }
+}
