@@ -1,0 +1,26 @@
+{
+  "kind": "tagger",
+  "charset": "abcdefghijklmnopqrstuvwxyz0123456789-., /",
+  "lowercase": true,
+  "classes": [
+    "ROAD",
+    "CITY",
+    "STATE",
+    "COUNTRY"
+  ],
+  "hparams": {
+    "emb_dim": 64,
+    "hidden": 128,
+    "layers": 2,
+    "dropout": 0.1
+  },
+  "training": {
+    "corpus": "corpora/na-v2.sqlite",
+    "steps": 20000,
+    "batch_size": 512,
+    "char_accuracy": 0.9542,
+    "train_seconds": 6642.2,
+    "device": "mps"
+  },
+  "format_version": 2
+}

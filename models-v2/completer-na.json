@@ -1,0 +1,27 @@
+{
+  "kind": "completer",
+  "charset": "abcdefghijklmnopqrstuvwxyz0123456789-., /",
+  "lowercase": true,
+  "classes": [
+    "ROAD",
+    "CITY",
+    "STATE",
+    "COUNTRY"
+  ],
+  "hparams": {
+    "emb_dim": 64,
+    "hidden": 256,
+    "layers": 2,
+    "dropout": 0.1
+  },
+  "training": {
+    "corpus": "corpora/na-v2.sqlite",
+    "steps": 40000,
+    "batch_size": 512,
+    "val_char_loss": 0.9933,
+    "val_class_loss": 0.0637,
+    "train_seconds": 10316.6,
+    "device": "mps"
+  },
+  "format_version": 2
+}
