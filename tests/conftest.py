@@ -42,7 +42,7 @@ def class_vocab(gaz):
 def trained_tagger_path(gaz, grammar, tmp_path_factory):
     out = tmp_path_factory.mktemp("models") / "tagger-test"
     settings = TrainSettings(
-        steps=250, batch_size=16, val_every=250, val_batches=4, log_every=1000,
+        steps=250, batch_size=16, val_every=250, val_batches=4, log_every=1000, device="cpu",
         hparams={"hidden": 32, "emb_dim": 16, "layers": 1},
     )
     return train_tagger(gaz, grammar, str(out), settings)
@@ -52,7 +52,7 @@ def trained_tagger_path(gaz, grammar, tmp_path_factory):
 def trained_completer_path(gaz, grammar, tmp_path_factory):
     out = tmp_path_factory.mktemp("models") / "completer-test"
     settings = TrainSettings(
-        steps=500, batch_size=16, val_every=500, val_batches=4, log_every=1000,
+        steps=500, batch_size=16, val_every=500, val_batches=4, log_every=1000, device="cpu",
         hparams={"hidden": 64, "emb_dim": 32, "layers": 1},
     )
     return train_completer(gaz, grammar, str(out), settings)
@@ -62,7 +62,7 @@ def trained_completer_path(gaz, grammar, tmp_path_factory):
 def trained_encoder_path(gaz, tmp_path_factory):
     out = tmp_path_factory.mktemp("models") / "encoder-test"
     settings = TrainSettings(
-        steps=300, batch_size=6, val_every=300, val_batches=4, log_every=1000,
+        steps=300, batch_size=6, val_every=300, val_batches=4, log_every=1000, device="cpu",
         hparams={"hidden": 32, "emb_dim": 16, "out_dim": 16},
     )
     return train_encoder(gaz, str(out), settings)
