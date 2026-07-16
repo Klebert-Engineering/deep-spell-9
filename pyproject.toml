@@ -61,4 +61,5 @@ extend-immutable-calls = ["typer.Option", "typer.Argument"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]
 filterwarnings = ["ignore::DeprecationWarning"]
