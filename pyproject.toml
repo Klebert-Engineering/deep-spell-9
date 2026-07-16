@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deep-spell-9"
+version = "2.0.0a1"
+description = "Neural geographic query processor: classification, completion, correction and FTS lookup of geographic queries."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Klebert Engineering", email = "ds9@klebert-engineering.de" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "typer>=0.9",
+    "symspellpy>=6.7",
+    "rapidfuzz>=3.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.26",
+    "ruff>=0.4",
+]
+ann = [
+    "hnswlib>=0.8",
+]
+
+[project.scripts]
+ds9 = "deepspell.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Klebert-Engineering/deep-spell-9"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"deepspell.service" = ["static/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 110
+src = ["src", "tests"]
+extend-exclude = ["modules", "corpora", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["SIM108", "B905"]  # B905: several zips intentionally truncate
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]

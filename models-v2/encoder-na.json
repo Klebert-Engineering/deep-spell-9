@@ -1,0 +1,23 @@
+{
+  "kind": "encoder",
+  "charset": "abcdefghijklmnopqrstuvwxyz0123456789-., /",
+  "lowercase": true,
+  "classes": [],
+  "hparams": {
+    "emb_dim": 48,
+    "hidden": 128,
+    "layers": 1,
+    "out_dim": 32
+  },
+  "training": {
+    "corpus": "corpora/na-v2.sqlite",
+    "steps": 20000,
+    "batch_size": 512,
+    "corruption_mean": 1.0,
+    "corruption_stddev": 0.5,
+    "val_retrieval_top1": 1.0,
+    "train_seconds": 4765.4,
+    "device": "mps"
+  },
+  "format_version": 2
+}

@@ -1,0 +1,15 @@
+{
+  "tagger": "models-v2/tagger-na.json",
+  "completer": "models-v2/completer-na.json",
+
+  "corrector": "symspell",
+  "symspell_dictionary": "corpora/na-v2-symspell.txt",
+
+  "lookup": "corpora/na-v2-lookup.sqlite",
+  "lookup_kind": "native",
+
+  "beam_width": 6,
+  "max_completion_length": 16,
+  "corrections": 3,
+  "device": "cpu"
+}
